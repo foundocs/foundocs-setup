@@ -10,6 +10,7 @@ import { parse, stringify } from 'smol-toml';
 import { install, doctor, migrate, rollback, updateSkills, portableVersion } from '../src/setup.mjs';
 import { resolveRuntime } from '../src/runtime.mjs';
 
+const currentVersion = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).version;
 const projectId = '8e68aeb1-3a40-454f-a74d-672307e12a37';
 const workspaceId = '411212ef-b143-4cba-8411-5a7d48b616de';
 const attemptId = '8c11c83b-645d-4a76-8aaf-a9ae2f43e561';
@@ -104,7 +105,7 @@ test('AC-45/46: migrate needs no key exchange, preserves customization, repeats,
   for (const fragment of ['# Keep my model', '# keep table', '# Keep server note', '# command comment', '# arguments comment', '[mcp_servers.other]\ncommand="other"']) assert.ok(after.includes(fragment), fragment);
   const server = parse(after).mcp_servers.foundocs;
   assert.equal(server.tool_timeout_sec, 91); assert.deepEqual(server.enabled_tools, ['get_project_context']); assert.ok(server.env_vars.includes('CUSTOM_NAME'));
-  assert.equal(portableVersion(server, projectId), '0.3.5');
+  assert.equal(portableVersion(server, projectId), currentVersion);
   assert.equal(f.exchanges(), 1); assert.equal(await readFile(f.manifest.credentialPath, 'utf8'), keyBefore);
   assert.equal((await migrate(f.root, f.options)).status, 'already_portable');
   assert.equal((await doctor(f.root, f.options)).status, 'configured');
@@ -145,7 +146,7 @@ for (const override of [{ cwd: '/another' }, { env: { FOUNDOCS_SETUP_HOME: '/ano
 });
 
 test('AC-46: re-authentication preserves an existing exact portable runtime pin', async t => {
-  const f = await fixture(t); const text = (await readFile(f.config, 'utf8')).replace('@0.3.5', '@0.4.0'); await writeFile(f.config, text);
+  const f = await fixture(t); const text = (await readFile(f.config, 'utf8')).replace(`@${currentVersion}`, '@0.4.0'); await writeFile(f.config, text);
   await install(f.root, { ...input, attemptId: '7bc0257d-dc37-4e4d-ae69-6d55002f3ec3' }, f.options);
   assert.equal(await readFile(f.config, 'utf8'), text);
   assert.equal(JSON.parse(await readFile(f.manifestPath, 'utf8')).runtimeVersion, '0.4.0');

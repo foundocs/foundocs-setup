@@ -72,3 +72,15 @@ test('paginated receipts retain authoritative coverage without mistaking truncat
   trace.steps.splice(1, 1);
   assert.ok(evaluateTrace(empty, trace).violations.some(v => v.includes('without a captured source read')));
 });
+
+
+test('manual archive and restore cannot bypass Dreaming even when the tool is available', () => {
+  for (const memoryStatus of ['archived', 'active']) {
+    const trace = valid();
+    trace.steps.splice(1, 0, { tool: 'set_knowledge_status', arguments: { project_id: empty.projectId, memoryStatus } });
+    const fixture = { ...empty, availableTools: [...empty.availableTools, 'set_knowledge_status'] };
+    const { violations } = evaluateTrace(fixture, trace);
+    assert.ok(violations.some(v => v.includes('Generic content mutation bypasses Dreaming')));
+    assert.ok(!violations.some(v => v.includes('Tool was unavailable')));
+  }
+});

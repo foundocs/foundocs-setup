@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { install, doctor, migrate, rollback, updateSkills, helperCommand, portableVersion, portableTransport } from '../src/setup.mjs';
 import { resolveRuntime } from '../src/runtime.mjs';
+const currentVersion = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).version;
 const projectId = '8e68aeb1-3a40-454f-a74d-672307e12a37', workspaceId = '411212ef-b143-4cba-8411-5a7d48b616de', attemptId = '8c11c83b-645d-4a76-8aaf-a9ae2f43e561';
 const input = { version: 1, client: 'claude', projectId, workspaceId, attemptId, code: 'private_one_time_claude_code', exchangeUrl: 'https://api.example.test/exchange', mcpUrl: 'https://api.example.test/mcp' };
 async function fixture(t, legacy = false, windows = false) {
@@ -31,7 +32,7 @@ test('AC-49: client-specific version floor and unchanged supported pins', async 
   assert.equal(portableVersion(portableTransport(projectId, '0.3.4', 'claude'), projectId, 'claude'), null);
   const f = await fixture(t); const config = JSON.parse(f.text);
   assert.equal(config.mcpServers.foundocs.type, 'stdio');
-  assert.equal(portableVersion(config.mcpServers.foundocs, projectId, 'claude'), '0.3.5');
+  assert.equal(portableVersion(config.mcpServers.foundocs, projectId, 'claude'), currentVersion);
   for (const pin of ['0.3.5', '0.4.0']) {
     config.mcpServers.foundocs.args[1] = `@foundocs/foundocs-setup@${pin}`;
     const text = JSON.stringify(config, null, 3); await writeFile(f.path, text);
@@ -54,7 +55,7 @@ for (const windows of [false, true]) test(`AC-51: offline Claude migration prese
   assert.deepEqual(config.mcpServers.foundocs.customField, { preserve: true });
   assert.equal(config.note, 'preserve project setting'); assert.equal(config.mcpServers.other.command, 'other');
   assert.equal(config.mcpServers.foundocs.headersHelper, undefined); assert.equal(config.mcpServers.foundocs.url, undefined);
-  assert.equal(portableVersion(config.mcpServers.foundocs, projectId, 'claude'), '0.3.5');
+  assert.equal(portableVersion(config.mcpServers.foundocs, projectId, 'claude'), currentVersion);
   assert.equal((await migrate(f.root, offline)).status, 'already_portable');
   assert.equal((await doctor(f.root, f.options)).status, 'configured');
   assert.equal(await readFile(f.manifest.credentialPath, 'utf8'), key); assert.equal(f.exchanges(), 1);

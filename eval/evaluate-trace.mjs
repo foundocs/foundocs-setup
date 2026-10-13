@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 
-const writes = new Set(['create_doc', 'update_doc', 'delete_doc']);
+const writes = new Set(['create_doc', 'update_doc', 'delete_doc', 'set_knowledge_status']);
 const stages = [3, 4, 5, 6, 7, 8];
 const stable = value => JSON.stringify(value, (_, v) => v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.keys(v).sort().map(key => [key, v[key]])) : v);
 const unwrap = result => {

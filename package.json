@@ -1,9 +1,9 @@
 {
   "name": "@foundocs/foundocs-setup",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "description": "Repeatable project setup and agent skills for the Foundocs remote MCP server",
   "foundocsRelease": {
-    "summary": "Make Claude Code project MCP settings portable with the shared pinned npm runtime; migrate owned HTTP helpers offline while retaining private credentials."
+    "summary": "Document manual knowledge archival and restoration, preserve Dreaming approval boundaries, and detect status-write bypasses in protocol evaluations."
   },
   "type": "module",
   "bin": {

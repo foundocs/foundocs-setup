@@ -13,6 +13,7 @@ import { parse } from 'smol-toml';
 import { install, doctor, rollback, migrate, validateInput, markedBlock, helperCommand, diagnose, portableVersion } from '../src/setup.mjs';
 import { readCredential, windowsPrivateAcl } from '../src/auth.mjs';
 
+const currentVersion = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).version;
 const projectId = '8e68aeb1-3a40-454f-a74d-672307e12a37';
 const workspaceId = '411212ef-b143-4cba-8411-5a7d48b616de';
 const attemptId = '8c11c83b-645d-4a76-8aaf-a9ae2f43e561';
@@ -83,7 +84,7 @@ for (const client of ['codex', 'claude']) test(`${client}: preserves foreign set
   const server = (config.mcp_servers ?? config.mcpServers).foundocs;
   if (client === 'codex') {
     assert.equal(server.command, 'npx');
-    assert.equal(portableVersion(server, projectId), '0.3.5');
+    assert.equal(portableVersion(server, projectId), currentVersion);
     assert.ok(server.env_vars.includes('FOUNDOCS_SETUP_HOME'));
     assert.ok(server.env_vars.includes('FOUNDOCS_API_KEY'));
     assert.equal(configText.includes(f.root), false);
