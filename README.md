@@ -2,21 +2,22 @@
 
 Use the installation prompt from your project's Foundocs integration guide. It contains a ten-minute, one-use connection code, never an API key. The coding agent fixes an absolute project root and sends the prompt's JSON to the installer's **private stdin** using a process tool. Do not paste the JSON into shell command text, argv, logs, or a committed file.
 
-Version **0.3.3** omits routine configuration-file and pathname announcements in the bundled skills and generated agent instructions. Configuration is still resolved and validated internally; agents mention it when asked or when explaining a configuration problem. For local development verification, build this package and run from its directory:
+Version **0.3.4** makes Codex MCP settings portable across teammates while keeping each installation key in private local storage. Existing owned absolute-path configurations can migrate without exchanging a code or rotating a key. For local development verification, build this package and run from its directory:
 
 ```text
 node src/cli.mjs install --root /absolute/project
 node src/cli.mjs doctor --root /absolute/project
 node src/cli.mjs rollback --root /absolute/project
+node src/cli.mjs migrate --root /absolute/project
 ```
 
 The install command reads stdin until EOF. Commands never take codes or API keys as arguments. This package requires Node.js 22.19.0+ and a locally installed Claude Code or Codex CLI. Before exchanging the code it inspects the installed CLI's actual helper support, parses existing settings and checks private storage permissions. Missing or incompatible CLIs require installation/update or the manual guide. Codex's desktop app without its CLI cannot pass this automatic feature check.
 
 Input JSON follows `SetupInstallInput` version 1: `client` (`claude` or `codex`), `projectId`, `workspaceId`, `attemptId`, `code`, `exchangeUrl`, `mcpUrl`, and `version: 1`. The code is exchanged once for an installation key; same-attempt reruns reuse that private key. A newly issued attempt can replace a revoked key while retaining the previous key privately. Existing keys are never automatically revoked.
 
-Configuration is local to the exact `--root`: `foundocs.json`, a marked `AGENTS.md` block, and either `.codex/config.toml` or `.mcp.json`. Claude additionally receives a marked `CLAUDE.md` reference to `AGENTS.md`. The package also installs its English Foundocs skill at `.agents/skills/foundocs/` for Codex or `.claude/skills/foundocs/` for Claude, including the Dreaming protocol reference. The managed instruction block points to the selected client’s discoverable skill. Existing instructions and foreign MCP entries are preserved. Skill files are updated only when unchanged from the installer’s recorded version; foreign or user-edited skills stop preflight, and rollback preserves later user edits. Run `update-skills` to add the bundled skills to an older installation without a new connection code. Dreaming itself requires the connected server to expose `dream_memory` and `get_dream`; installation does not enable unavailable server capabilities. Conflicting project IDs, malformed files, symlinks, or a different same-name `foundocs` server stop installation before exchanging the code. Resolve a conflict explicitly; this installer does not overwrite it.
+Configuration is local to the exact `--root`: `foundocs.json`, a marked `AGENTS.md` block, and either `.codex/config.toml` or `.mcp.json`. Claude additionally receives a marked `CLAUDE.md` reference to `AGENTS.md`. The package also installs its English Foundocs skill at `.agents/skills/foundocs/` for Codex or `.claude/skills/foundocs/` for Claude, including the Dreaming protocol reference. The managed instruction block points to the selected client’s discoverable skill. Existing instructions and foreign MCP entries are preserved. Skill files are updated only when unchanged from the installer’s recorded version. Byte-identical packaged files in a new clone are adopted locally; other foreign or user-edited skills stop preflight, and rollback preserves later user edits. Run `update-skills` to add the bundled skills to an older installation without a new connection code. Dreaming itself requires the connected server to expose `dream_memory` and `get_dream`; installation does not enable unavailable server capabilities. Conflicting project IDs, malformed files, symlinks, or a different same-name `foundocs` server stop installation before exchanging the code. Resolve a conflict explicitly; this installer does not overwrite it.
 
-Keys, backups and installation journals live in `~/.local/share/foundocs/setup`, outside the project. `FOUNDOCS_SETUP_HOME` may select another absolute private directory outside the target project, including isolated test fixtures. Keep using that same value for doctor/rollback. Credentials are isolated by workspace, project, and canonical project root. Durable authentication helpers are copied there; MCP settings use the absolute Node executable and these helpers, independent of npm cache lifetime. Claude Code uses its HTTP `headersHelper`. Codex 0.149.1 reserves `Authorization` in its HTTP helper, so Codex uses a bundled local stdio adapter that forwards MCP tool discovery and calls to the same Remote HTTP endpoint with the saved Bearer key. This adapter preserves remote schemas, annotations, structured results and errors, and requires an explicit valid project ID on every call. A changed valid project ID is forwarded unchanged; the remote server enforces workspace access. It adds no remote service. macOS/Linux use user-only directories/files (0700/0600). Windows uses PowerShell to apply and verify a protected current-user-only ACL; unsupported ACL filesystems stop before code exchange.
+Keys, backups and installation journals live in `~/.local/share/foundocs/setup`, outside the project. `FOUNDOCS_SETUP_HOME` may select another absolute private directory outside the target project, including isolated test fixtures. Keep using that same value for doctor/rollback. Credentials are isolated by workspace, project, and canonical project root. Claude Code continues using a durable copied HTTP `headersHelper` with its original absolute Node and helper paths. Codex uses the exact-version npm package’s `mcp` command through `npx` on PATH; its project settings contain no user-specific path. Its stdio adapter forwards MCP tool discovery and calls to the same Remote HTTP endpoint with the saved Bearer key. This adapter preserves remote schemas, annotations, structured results and errors, and requires an explicit valid project ID on every call. A changed valid project ID is forwarded unchanged; the remote server enforces workspace access. It adds no remote service. macOS/Linux use user-only directories/files (0700/0600). Windows uses PowerShell to apply and verify a protected current-user-only ACL; unsupported ACL filesystems stop before code exchange.
 
 The helper prefers the saved installation credential. To explicitly use a process-provided `FOUNDOCS_API_KEY`, also provide matching `FOUNDOCS_PROJECT_ID` and `FOUNDOCS_WORKSPACE_ID`. An unrelated shell key never silently overrides the saved workspace key. The helper's stdout contains authentication headers solely for the host MCP client; do not invoke it through tools that log stdout.
 
@@ -28,9 +29,42 @@ Doctor performs MCP initialize, tool discovery, and `get_project_context` with t
 
 For response loss or failure before private key storage, the error reports the attempt ID and guide recovery route: inspect/revoke only that attempt's issued key and generate a new code. After key storage, rerun the same installation input. `rollback` restores only files still matching the installer-written content; concurrent edits are retained and reported. It preserves private credentials for retry. A stale operation lock after process interruption is never automatically deleted: confirm no installer is running before removing the reported private lock file.
 
+## Shared Codex projects
+
+Commit `foundocs.json`, the project `.codex/config.toml`, and the managed instructions/skills when the team shares them. A newly generated entry uses this transport (the actual file also lists supported environment variable **names**, never their values):
+
+```toml
+[mcp_servers.foundocs]
+command = "npx"
+args = ["--yes", "@foundocs/foundocs-setup@0.3.4", "mcp", "--project-id", "YOUR-PROJECT-UUID"]
+env_vars = ["FOUNDOCS_SETUP_HOME", "FOUNDOCS_API_KEY", "FOUNDOCS_PROJECT_ID", "FOUNDOCS_WORKSPACE_ID", "STEERDOCS_SETUP_HOME", "STEERDOCS_API_KEY", "STEERDOCS_PROJECT_ID", "STEERDOCS_WORKSPACE_ID"]
+startup_timeout_sec = 60
+```
+
+Each teammate runs the integration prompt once for their own clone. This creates a local private manifest/key scoped to that canonical checkout; it retains the existing valid portable TOML byte for byte. Copying, moving or cloning a checkout does not transfer its authentication. A missing local installation returns a redacted error explaining how to install or diagnose it. No `.env` loader is needed, and the agent never reads the API key.
+
+The host must have Node.js 22.19.0+ and npm/npx on its PATH. A desktop launched without your shell's PATH may need its environment configured or a restart. The first uncached `npx` launch requires npm registry access; later launches use npm's normal cache. The runtime version is pinned to an exact release for reproducibility. Reinstalling/authenticating with a newer installer preserves an existing valid pin; `update-skills` never upgrades the MCP runtime. An intentional runtime update is a reviewed change to the shared pin, followed by local install/migrate and host verification. A pinned registry command requires that release to have been published; local pre-release verification uses a packed artifact installed in an isolated fixture.
+
+The runtime starts from the host's working directory and selects the nearest `foundocs.json`. It stops at a Git checkout boundary, a malformed nearer file or a project-ID mismatch. It never searches another checkout for a working credential. It validates the canonical root, project/workspace IDs, endpoint, recorded attempt, expected private credential path and file permissions before opening the remote connection. The explicit `--project-id` protects a nested project from silently inheriting its parent's transport. These are startup identity checks: tool calls still pass their explicit `project_id` unchanged and the remote server retains its existing workspace authorization rules.
+
+`FOUNDOCS_SETUP_HOME` selects custom private storage through the host environment. Keep the same value when installing, starting Codex, diagnosing, migrating and rolling back. Supported scoped API-key override names and historical equivalents are forwarded through `env_vars`; values stay outside Git. Per-server `cwd`, `env` and URL overrides are rejected by setup/doctor because they can silently change installation selection. Tool allowlists and timeouts are preserved.
+
+### Existing Codex installations
+
+After this release is published:
+
+```text
+npx --yes @foundocs/foundocs-setup@0.3.4 migrate --root /absolute/project
+npx --yes @foundocs/foundocs-setup@0.3.4 doctor --root /absolute/project
+```
+
+`migrate` is offline, requires no connection code, and retains the credential bytes. It verifies the private manifest and journal against the original absolute transport, edits only the owned server's transport fields and preserves unrelated TOML, comments, tool settings and timeouts. Missing ownership evidence, changed execution settings and unsupported inline tables stop with the original file intact. An install rerun can perform the same migration while reusing its saved same-attempt key. `update-skills` remains skill-only.
+
+Writes use the existing lock, atomic replacement, concurrency check and rollback journal. If interrupted, retain the journal and rerun the same command; confirm no process is running before clearing a stale lock. `rollback` restores unchanged setup edits to the recorded baseline and preserves later user edits and credentials. The baseline may predate migration when an installation already has a journal. After migration, restart/reconnect the trusted Codex project and call `get_project_context` through its MCP server. Doctor reports legacy transport migration separately from conflicting portable configuration; an independent doctor call does not prove the host connected.
+
 ## Verification status
 
-The implementation includes unit/integration tests for both configuration formats, preservation, reruns, conflicts, credential isolation, redaction, recovery, rollback, protocol diagnostics, path quoting and ACL command generation. Local feature checks pass on macOS with Codex CLI 0.149.1 and Claude Code 2.1.284. Windows/Linux command paths are implemented, but real runtime verification on those operating systems is still required before claiming them verified. These automated tests use isolated host capability fixtures and do not claim that a real host connected successfully.
+The implementation includes unit/integration tests for both configuration formats, preservation, reruns, conflicts, credential isolation, redaction, recovery, rollback, protocol diagnostics, path quoting and ACL command generation. Local feature checks pass on macOS with Codex CLI 0.149.1 and Claude Code 2.1.284. Windows/Linux command paths are implemented, but real runtime verification on those operating systems is still required before claiming them verified. Package automated tests use isolated host capability fixtures. The 0.3.4 packed artifact was additionally verified in the product repository on macOS with a real Codex host, an isolated trusted CODEX_HOME, the generated project configuration, and an actual HTTP MCP get_project_context call. This does not verify Linux/Windows or a public npm release.
 
 Development: `npm ci`, `npm test`, and `npm run typecheck`.
 
@@ -45,7 +79,7 @@ Existing recorded installations can update the skill and managed instructions wi
 node /absolute/path/to/foundocs-setup/src/cli.mjs update-skills --root /absolute/project
 ```
 
-The equivalent command for this release is `npx --yes @foundocs/foundocs-setup@0.3.3 update-skills --root /absolute/project`. The local commands above run this checkout; a pinned npm command requires that registry release to exist.
+The equivalent command for this release is `npx --yes @foundocs/foundocs-setup@0.3.4 update-skills --root /absolute/project`. The local commands above run this checkout; a pinned npm command requires that registry release to exist.
 
 Updates preserve MCP settings, project configuration, authentication helpers and private keys, including installations that still use the historical configuration filename. The private `skills.json` records installed/pending asset hashes for interruption recovery. Foreign same-name files and local skill edits stop installation/update before project writes; move or reconcile the reported file explicitly, then retry. Unrelated skills and instructions are retained. `rollback` includes skill assets and preserves concurrent edits.
 

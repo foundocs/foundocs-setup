@@ -1,9 +1,9 @@
 {
   "name": "@foundocs/foundocs-setup",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "Repeatable project setup and agent skills for the Foundocs remote MCP server",
   "foundocsRelease": {
-    "summary": "Omit routine configuration-file and pathname announcements in Foundocs skills and generated agent instructions; keep project resolution and validation unchanged."
+    "summary": "Make Codex MCP configuration portable across teammates with a pinned npm runtime and private per-installation credentials; migrate existing owned configurations without rotating keys."
   },
   "type": "module",
   "bin": {
@@ -26,7 +26,7 @@
     "build": "node build.mjs",
     "prepack": "node build.mjs",
     "test": "node build.mjs && node --test test/*.test.mjs",
-    "typecheck": "node --check src/cli.mjs && node --check src/setup.mjs && node --check src/auth.mjs && node --check src/bridge.mjs && node --check src/legacy-compat.mjs && node --check src/skill-assets.mjs"
+    "typecheck": "node --check src/cli.mjs && node --check src/setup.mjs && node --check src/auth.mjs && node --check src/bridge.mjs && node --check src/legacy-compat.mjs && node --check src/skill-assets.mjs && node --check src/runtime.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/client": "2.3.1",

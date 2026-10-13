@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, writeFile, rm, realpath, readdir, rename, symlink } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { parse } from 'smol-toml';
+import { parse, stringify } from 'smol-toml';
 import { install, doctor, rollback, storageBase } from '../src/setup.mjs';
 import { readCredential } from '../src/auth.mjs';
 
@@ -31,6 +31,7 @@ async function fixture(t, client = 'codex', { keepJournal = false } = {}) {
   const directory = join(storageDir, 'projects', rootHash), manifestPath = join(directory, 'installation.json');
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
   delete manifest.brandingVersion;
+  delete manifest.runtimeVersion;
   await writeFile(manifestPath, JSON.stringify(manifest));
   // A 0.1.x installation did not include the new skill assets or ownership state.
   const assetRoot = join(root, client === 'codex' ? '.agents' : '.claude', 'skills', 'foundocs-capture-knowledge');
@@ -38,6 +39,17 @@ async function fixture(t, client = 'codex', { keepJournal = false } = {}) {
   const dreamingRoot = join(root, client === 'codex' ? '.agents' : '.claude', 'skills', 'foundocs');
   await rm(dreamingRoot, { recursive: true });
   await rm(join(directory, 'skills.json'));
+  if (client === 'codex') {
+    const configPath = join(root, '.codex/config.toml');
+    const text = await readFile(configPath, 'utf8');
+    const config = parse(text);
+    config.mcp_servers.foundocs = { command: process.execPath, args: [join(storageDir, 'bridge-v1.mjs'), manifest.credentialPath, projectId, workspaceId, input.mcpUrl] };
+    await writeFile(configPath, '# Keep this comment\n' + stringify(config));
+    const journalPath = join(directory, 'rollback.json');
+    const journal = JSON.parse(await readFile(journalPath, 'utf8'));
+    journal.entries.find(entry => entry.path === configPath).after = await readFile(configPath, 'utf8');
+    await writeFile(journalPath, JSON.stringify(journal));
+  }
   const historical = value => value.replaceAll('foundocs', 'steerdocs').replaceAll('FOUNDOCS', 'STEERDOCS');
   const configName = client === 'codex' ? '.codex/config.toml' : '.mcp.json';
   for (const name of ['AGENTS.md', configName, ...(client === 'claude' ? ['CLAUDE.md'] : [])]) {
@@ -49,6 +61,11 @@ async function fixture(t, client = 'codex', { keepJournal = false } = {}) {
     const journal = JSON.parse(await readFile(journalPath, 'utf8'));
     journal.entries = journal.entries.filter(entry => !entry.path.startsWith(`${assetRoot}/`) && !entry.path.startsWith(`${dreamingRoot}/`));
     await writeFile(journalPath, historical(JSON.stringify(journal)));
+  } else if (client === 'codex') {
+    const journal = JSON.parse(historical(await readFile(journalPath, 'utf8')));
+    journal.entries = journal.entries.filter(entry => entry.path === join(root, '.codex/config.toml'));
+    journal.entries[0].before = journal.entries[0].after;
+    await writeFile(journalPath, JSON.stringify(journal));
   } else await rm(journalPath);
   return { homeDir, root, storageDir, directory, manifest, configName, options, input: { ...input, client }, exchanges: () => exchanges };
 }

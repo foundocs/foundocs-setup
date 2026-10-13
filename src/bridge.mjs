@@ -5,8 +5,10 @@ import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/cli
 import { Server, ProtocolError, ProtocolErrorCode } from '@modelcontextprotocol/server';
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 import { readCredential } from './auth.mjs';
+import { pathToFileURL } from 'node:url';
+import { resolve } from 'node:path';
 
-const [credentialPath, projectId, workspaceId, endpoint] = process.argv.slice(2);
+export async function runBridge({ credentialPath, projectId, workspaceId, mcpUrl: endpoint }) {
 let remote, local;
 async function close() {
   await remote?.close().catch(() => {});
@@ -43,4 +45,11 @@ try {
 } catch {
   process.stderr.write('Foundocs authentication bridge unavailable. Run foundocs-setup doctor.\n');
   await close(); process.exitCode = 1;
+}
+
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  const [credentialPath, projectId, workspaceId, mcpUrl] = process.argv.slice(2);
+  await runBridge({ credentialPath, projectId, workspaceId, mcpUrl });
 }

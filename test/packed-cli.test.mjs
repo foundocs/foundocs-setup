@@ -1,12 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, writeFile, rm, realpath, readdir, symlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, rm, realpath, readdir, symlink, cp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createServer } from 'node:http';
+import { Client } from '@modelcontextprotocol/client';
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
+import { parse, stringify } from 'smol-toml';
 
 const exec = promisify(execFile);
 const packageRoot = fileURLToPath(new URL('..', import.meta.url));
@@ -50,11 +53,11 @@ function command(cli, root, env, operation, input) {
   });
 }
 
-test('AC-26/28/29/30/31/33/38: packed CLI installs both clients, updates offline, diagnoses HTTP MCP and rolls back', { skip: process.platform === 'win32', timeout: 120000 }, async t => {
+test('AC-26/28/29/30/31/33/38/42/43/44/45/46/48: packed CLI installs both clients, updates offline, diagnoses HTTP MCP and rolls back', { skip: process.platform === 'win32', timeout: 120000 }, async t => {
   const base = await realpath(await mkdtemp(join(tmpdir(), 'foundocs-packed-cli-')));
   t.after(() => rm(base, { recursive: true, force: true }));
   const packed = JSON.parse((await exec('npm', ['pack', '--json', '--pack-destination', base], { cwd: packageRoot, env: { ...process.env, npm_config_cache: join(base, 'npm-cache') }, maxBuffer: 1024 * 1024 })).stdout)[0];
-  for (const name of ['src/cli.mjs', 'src/skill-assets.mjs', 'skills/foundocs-capture-knowledge/SKILL.md', 'skills/foundocs-capture-knowledge/references/writing-guide.md', 'skills/foundocs/scripts/check-update.mjs', 'skills/foundocs/references/updates.md', 'templates/knowledge-policy.md', 'templates/update-policy.md']) {
+  for (const name of ['src/cli.mjs', 'src/runtime.mjs', 'src/skill-assets.mjs', 'skills/foundocs-capture-knowledge/SKILL.md', 'skills/foundocs-capture-knowledge/references/writing-guide.md', 'skills/foundocs/scripts/check-update.mjs', 'skills/foundocs/references/updates.md', 'templates/knowledge-policy.md', 'templates/update-policy.md']) {
     assert.ok(packed.files.some(file => file.path === name), `tarball is missing ${name}`);
   }
   await exec('tar', ['-xzf', join(base, packed.filename), '-C', base]);
@@ -77,6 +80,7 @@ globalThis.fetch = async (url, options) => {
 };
 `);
   const requests = [];
+  const issuedKeys = new Set(), authenticatedKeys = new Set();
   const serverErrors = [];
   const server = createServer(async (request, response) => {
     try {
@@ -86,9 +90,11 @@ globalThis.fetch = async (url, options) => {
       if (request.url === '/exchange') {
         assert.equal(data.code, code); assert.equal(data.projectId, projectId);
         requests.push('exchange');
-        response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ value: key, projectId, workspaceId })); return;
+        const issuedKey = `${key}_${issuedKeys.size + 1}`; issuedKeys.add(issuedKey);
+        response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ value: issuedKey, projectId, workspaceId })); return;
       }
-      assert.equal(request.headers.authorization, `Bearer ${key}`);
+      const receivedKey = request.headers.authorization?.replace(/^Bearer /, '');
+      assert.ok(issuedKeys.has(receivedKey)); authenticatedKeys.add(receivedKey);
       requests.push(data.method);
       if (data.method.startsWith('notifications/')) { response.writeHead(202).end(); return; }
       let result;
@@ -125,6 +131,68 @@ globalThis.fetch = async (url, options) => {
     const [installationName] = await readdir(join(storage, 'projects'));
     const directory = join(storage, 'projects', installationName);
     const manifest = JSON.parse(await readFile(join(directory, 'installation.json'), 'utf8'));
+    if (client === 'codex') {
+      const configurationPath = join(root, '.codex/config.toml');
+      const sharedText = await readFile(configurationPath, 'utf8');
+      const config = parse(sharedText).mcp_servers.foundocs;
+      const connect = async (cwd, runtimeEnv) => {
+        const transport = new StdioClientTransport({ command: process.execPath, args: [cli, ...config.args.slice(2)], cwd, env: runtimeEnv, stderr: 'pipe' });
+        let stderr = ''; transport.stderr?.on('data', data => { stderr += data; });
+        const host = new Client({ name: 'packed-runtime-test', version: '1' });
+        try {
+          await host.connect(transport);
+          assert.equal((await host.listTools()).tools[0].name, 'get_project_context');
+          assert.equal((await host.callTool({ name: 'get_project_context', arguments: { project_id: projectId } })).structuredContent.data.project.id, projectId);
+        } finally { await host.close(); }
+        assert.ok(!stderr.includes(key) && !stderr.includes(code));
+      };
+      const nested = join(root, 'src', '하위 directory'); await mkdir(nested, { recursive: true });
+      await connect(nested, env);
+      // A teammate clones only shared files and authenticates through their own store.
+      const clone = join(base, '팀원 clone'), cloneStorage = join(base, 'clone-private');
+      await cp(root, clone, { recursive: true });
+      const cloneEnv = { ...env, FOUNDOCS_SETUP_HOME: cloneStorage };
+      await assert.rejects(exec(process.execPath, [cli, 'mcp', '--project-id', projectId], { cwd: clone, env: cloneEnv }), error => {
+        assert.equal(error.stdout, ''); assert.match(error.stderr, /integration install/);
+        assert.ok(!error.stderr.includes(key) && !error.stderr.includes(cloneStorage)); return true;
+      });
+      const linked = await command(cli, clone, cloneEnv, 'install', input);
+      assert.equal(linked.status, 0); assert.deepEqual(linked.result.changedFiles, []);
+      const cloneConfig = join(clone, '.codex/config.toml');
+      assert.equal(await readFile(cloneConfig, 'utf8'), sharedText);
+      const [cloneInstallation] = await readdir(join(cloneStorage, 'projects'));
+      const cloneDirectory = join(cloneStorage, 'projects', cloneInstallation);
+      const cloneManifestPath = join(cloneDirectory, 'installation.json');
+      const cloneManifest = JSON.parse(await readFile(cloneManifestPath, 'utf8'));
+      const cloneKey = await readFile(cloneManifest.credentialPath, 'utf8');
+      assert.notEqual(JSON.parse(cloneKey).value, JSON.parse(await readFile(manifest.credentialPath, 'utf8')).value);
+      await connect(join(clone, 'src', '하위 directory'), cloneEnv);
+      assert.equal(authenticatedKeys.size, 2);
+      // Reproduce a recorded pre-portable installation, then drive migration
+      // exclusively through the extracted CLI, forbidding network access.
+      const legacyText = '# preserved team note\n' + stringify({ mcp_servers: { foundocs: { command: process.execPath, args: [join(cloneStorage, 'bridge-v1.mjs'), cloneManifest.credentialPath, projectId, workspaceId, input.mcpUrl], tool_timeout_sec: 77 } } }).trimEnd();
+      await writeFile(cloneConfig, legacyText);
+      delete cloneManifest.runtimeVersion;
+      await writeFile(cloneManifestPath, JSON.stringify(cloneManifest));
+      await writeFile(join(cloneDirectory, 'rollback.json'), JSON.stringify({ root: clone, entries: [{ path: cloneConfig, before: legacyText, after: legacyText }] }));
+      const cloneOffline = { ...cloneEnv, NODE_OPTIONS: `--import=${blockNetwork}` };
+      const requestsBeforeMigration = requests.length;
+      assert.equal((await command(cli, clone, cloneOffline, 'migrate')).result.status, 'migrated');
+      assert.equal((await command(cli, clone, cloneOffline, 'migrate')).result.status, 'already_portable');
+      assert.equal((await command(cli, clone, cloneOffline, 'rollback')).status, 0);
+      assert.equal(await readFile(cloneConfig, 'utf8'), legacyText);
+      assert.equal((await command(cli, clone, cloneOffline, 'migrate')).result.status, 'migrated');
+      assert.equal(await readFile(cloneManifest.credentialPath, 'utf8'), cloneKey);
+      assert.equal(requests.length, requestsBeforeMigration);
+      assert.ok((await readFile(cloneConfig, 'utf8')).startsWith('# preserved team note'));
+      await connect(join(clone, 'src', '하위 directory'), cloneEnv);
+      const nearer = join(clone, 'src', 'foundocs.json'); await writeFile(nearer, '{');
+      const requestsBeforeFailure = requests.length;
+      await assert.rejects(exec(process.execPath, [cli, 'mcp', '--project-id', projectId], { cwd: join(clone, 'src'), env: cloneEnv }), error => {
+        assert.equal(error.stdout, ''); assert.ok(!error.stderr.includes(key)); return true;
+      });
+      assert.equal(requests.length, requestsBeforeFailure);
+    }
     const protectedPaths = [join(root, 'foundocs.json'), join(root, client === 'codex' ? '.codex/config.toml' : '.mcp.json'), manifest.credentialPath, manifest.helperPath, join(dirname(manifest.helperPath), 'legacy-compat.mjs'), join(directory, 'installation.json')];
     if (client === 'codex') protectedPaths.push(join(dirname(manifest.helperPath), 'bridge-v1.mjs'));
     const before = await snapshot(protectedPaths);
@@ -183,7 +251,7 @@ globalThis.fetch = async (url, options) => {
     assert.equal(await readFile(changedPath, 'utf8'), changed);
     assert.deepEqual(await snapshot(protectedPaths), before);
   }
-  assert.equal(requests.filter(method => method === 'exchange').length, 2);
+  assert.equal(requests.filter(method => method === 'exchange').length, 3);
   assert.deepEqual(serverErrors, []);
   t.diagnostic(`Packed ${packed.name}@${packed.version}; actual CLI and HTTP MCP passed for both clients. Dependencies resolved from local node_modules; host capability probes substituted.`);
 });

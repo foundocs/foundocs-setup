@@ -10,7 +10,7 @@ import { createServer } from 'node:http';
 import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { parse } from 'smol-toml';
-import { install, doctor, rollback, validateInput, markedBlock, helperCommand, diagnose } from '../src/setup.mjs';
+import { install, doctor, rollback, migrate, validateInput, markedBlock, helperCommand, diagnose, portableVersion } from '../src/setup.mjs';
 import { readCredential, windowsPrivateAcl } from '../src/auth.mjs';
 
 const projectId = '8e68aeb1-3a40-454f-a74d-672307e12a37';
@@ -82,9 +82,12 @@ for (const client of ['codex', 'claude']) test(`${client}: preserves foreign set
   assert.equal((await stat(f.storageDir)).mode & 0o777, 0o700);
   const server = (config.mcp_servers ?? config.mcpServers).foundocs;
   if (client === 'codex') {
-    assert.equal(server.command, process.execPath);
-    assert.deepEqual(server.args.slice(1), [saved.credentialPath, projectId, workspaceId, input.mcpUrl]);
-    assert.ok((await stat(server.args[0])).size > 0);
+    assert.equal(server.command, 'npx');
+    assert.equal(portableVersion(server, projectId), '0.3.4');
+    assert.ok(server.env_vars.includes('FOUNDOCS_SETUP_HOME'));
+    assert.ok(server.env_vars.includes('FOUNDOCS_API_KEY'));
+    assert.equal(configText.includes(f.root), false);
+    assert.equal(configText.includes(f.storageDir), false);
   }
   const command = client === 'claude' ? server.headersHelper : helperCommand([process.execPath, saved.helperPath, '--headers', saved.credentialPath, projectId, workspaceId]);
   const output = await exec('/bin/sh', ['-c', command], { env: { ...process.env, FOUNDOCS_API_KEY: 'other_workspace_key' } });
@@ -159,12 +162,12 @@ test('diagnostic failure preserves credential for same-attempt retry', async (t)
   assert.equal(f.exchanges(), 1);
 });
 
-test('doctor detects missing durable helper and same-attempt install repairs it', async (t) => {
-  const f = await fixture(t); await install(f.root, input, f.options);
+test('Claude doctor detects missing durable helper and same-attempt install repairs it', async (t) => {
+  const f = await fixture(t, 'claude'); await install(f.root, f.input, f.options);
   const saved = await manifest(f.storageDir);
   await rm(saved.helperPath);
   await assert.rejects(doctor(f.root, f.options), { stage: 'diagnostic' });
-  await install(f.root, input, f.options);
+  await install(f.root, f.input, f.options);
   assert.equal(f.exchanges(), 1);
   assert.equal((await doctor(f.root, f.options)).status, 'configured');
 });
@@ -273,7 +276,7 @@ test('durable Codex bridge relays MCP metadata/results and explicit project unch
   const mcpUrl = `http://127.0.0.1:${server.address().port}/mcp`;
   await install(f.root, { ...input, mcpUrl }, f.options);
   const config = parse(await readFile(join(f.root, '.codex/config.toml'), 'utf8')).mcp_servers.foundocs;
-  const transport = new StdioClientTransport({ command: config.command, args: config.args, stderr: 'pipe' });
+  const transport = new StdioClientTransport({ command: process.execPath, args: [new URL('../src/cli.mjs', import.meta.url).pathname, ...config.args.slice(2)], cwd: f.root, env: { ...process.env, FOUNDOCS_SETUP_HOME: f.storageDir }, stderr: 'pipe' });
   const client = new Client({ name: 'bridge-test', version: '1' });
   t.after(() => client.close());
   let stderr = ''; transport.stderr?.on('data', (chunk) => { stderr += chunk; });
