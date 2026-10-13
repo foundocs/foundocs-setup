@@ -1,9 +1,9 @@
 {
   "name": "@foundocs/foundocs-setup",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Repeatable project setup and agent skills for the Foundocs remote MCP server",
   "foundocsRelease": {
-    "summary": "Publish the installer from its public source repository using GitHub Actions trusted publishing and npm provenance; installer behavior is unchanged from 0.3.1."
+    "summary": "Omit routine configuration-file and pathname announcements in Foundocs skills and generated agent instructions; keep project resolution and validation unchanged."
   },
   "type": "module",
   "bin": {

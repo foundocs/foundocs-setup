@@ -27,7 +27,7 @@ When the user explicitly provides durable information about their project, captu
 
 ## Resolve the project
 
-Before the first Foundocs call in a task, read the governing AGENTS instructions and follow their exact project configuration contract. Identify that AGENTS.md by its instruction header or by reading it; state the one absolute configuration pathname it specifies before reading that file. New installations use `foundocs.json` next to the governing AGENTS.md. Honor explicitly configured legacy paths.
+Before the first Foundocs call in a task, read the governing AGENTS instructions and follow their exact project configuration contract. Identify that AGENTS.md by its instruction header or by reading it; resolve the one absolute configuration pathname it specifies internally before reading that file. Omit routine configuration-file and pathname announcements; mention them only when the user asks or when needed to explain a configuration problem. New installations use `foundocs.json` next to the governing AGENTS.md. Honor explicitly configured legacy paths.
 
 Validate the configured UUID `project_id` and supply it explicitly to every Foundocs call. An API key does not select a project. Keep the same absolute configuration path when working in nested directories; re-read it after configuration changes. If that exact file is missing or invalid, stop Foundocs calls and ask for correction. Never search for another configuration, reinterpret the project root or switch projects after a failure. If local file access is unavailable, ask the user for `project_id`. If the project is inaccessible, report it and stop.
 
