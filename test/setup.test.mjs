@@ -83,13 +83,13 @@ for (const client of ['codex', 'claude']) test(`${client}: preserves foreign set
   const server = (config.mcp_servers ?? config.mcpServers).foundocs;
   if (client === 'codex') {
     assert.equal(server.command, 'npx');
-    assert.equal(portableVersion(server, projectId), '0.3.4');
+    assert.equal(portableVersion(server, projectId), '0.3.5');
     assert.ok(server.env_vars.includes('FOUNDOCS_SETUP_HOME'));
     assert.ok(server.env_vars.includes('FOUNDOCS_API_KEY'));
     assert.equal(configText.includes(f.root), false);
     assert.equal(configText.includes(f.storageDir), false);
   }
-  const command = client === 'claude' ? server.headersHelper : helperCommand([process.execPath, saved.helperPath, '--headers', saved.credentialPath, projectId, workspaceId]);
+  const command = helperCommand([process.execPath, saved.helperPath, '--headers', saved.credentialPath, projectId, workspaceId]);
   const output = await exec('/bin/sh', ['-c', command], { env: { ...process.env, FOUNDOCS_API_KEY: 'other_workspace_key' } });
   assert.deepEqual(JSON.parse(output.stdout), { Authorization: `Bearer ${key}` });
   assert.equal(output.stderr, '');
@@ -162,11 +162,11 @@ test('diagnostic failure preserves credential for same-attempt retry', async (t)
   assert.equal(f.exchanges(), 1);
 });
 
-test('Claude doctor detects missing durable helper and same-attempt install repairs it', async (t) => {
+test('portable Claude no longer depends on copied legacy helper and reinstall repairs it for compatibility', async (t) => {
   const f = await fixture(t, 'claude'); await install(f.root, f.input, f.options);
   const saved = await manifest(f.storageDir);
   await rm(saved.helperPath);
-  await assert.rejects(doctor(f.root, f.options), { stage: 'diagnostic' });
+  assert.equal((await doctor(f.root, f.options)).status, 'configured');
   await install(f.root, f.input, f.options);
   assert.equal(f.exchanges(), 1);
   assert.equal((await doctor(f.root, f.options)).status, 'configured');

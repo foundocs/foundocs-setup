@@ -165,7 +165,7 @@ async function atomicWrite(path, content, mode = 0o600) {
 
 async function run(client, args, options = {}) {
   try { return await exec(client, args, { timeout: 20000, maxBuffer: 4 * 1024 * 1024, ...options }); }
-  catch { fail('preflight', `${client} must be installed locally and support HTTP authentication helpers. Update the client or use the manual guide.`); }
+  catch { fail('preflight', `${client} must be installed locally and support project stdio MCP configuration. Update the client or use the manual guide.`); }
 }
 
 export async function probeClient(client) {
@@ -178,17 +178,17 @@ export async function probeClient(client) {
     const directory = await mkdtemp(join(tmpdir(), 'foundocs-client-probe-'));
     const options = { cwd: directory, env: { ...process.env, CLAUDE_CONFIG_DIR: join(directory, 'home') } };
     try {
-      const configuration = { type: 'http', url: 'https://example.invalid/mcp', headersHelper: 'echo {}' };
+      const configuration = { type: 'stdio', command: 'npx', args: ['--version'] };
       await run('claude', ['mcp', 'add-json', '--scope', 'project', 'foundocs_setup_probe', JSON.stringify(configuration)], options);
       const saved = parseJson(await readFile(join(directory, '.mcp.json'), 'utf8'), '.mcp.json');
-      if (saved.mcpServers?.foundocs_setup_probe?.headersHelper !== 'echo {}') fail('preflight', 'Claude Code did not preserve headersHelper. Update Claude Code first.');
+      if (!sameConfig(saved.mcpServers?.foundocs_setup_probe, configuration)) fail('preflight', 'Claude Code did not preserve stdio MCP configuration. Update Claude Code first.');
       let rejected = false;
-      try { await exec('claude', ['mcp', 'add-json', '--scope', 'project', 'foundocs_invalid_probe', JSON.stringify({ ...configuration, headersHelper: 123 })], { ...options, timeout: 20000 }); }
+      try { await exec('claude', ['mcp', 'add-json', '--scope', 'project', 'foundocs_invalid_probe', JSON.stringify({ ...configuration, args: 123 })], { ...options, timeout: 20000 }); }
       catch { rejected = true; }
-      if (!rejected) fail('preflight', 'Claude Code does not validate headersHelper. Update Claude Code first.');
+      if (!rejected) fail('preflight', 'Claude Code does not validate stdio arguments. Update Claude Code first.');
     } finally { await rm(directory, { recursive: true, force: true }); }
   }
-  return { client, version, helper: client === 'codex' ? 'stdio_auth_bridge' : 'headers_helper', platform: process.platform };
+  return { client, version, helper: 'stdio_auth_bridge', platform: process.platform };
 }
 
 function sameConfig(a, b) {
@@ -199,42 +199,70 @@ function sameConfig(a, b) {
 
 export const RUNTIME_ENV = ['FOUNDOCS_SETUP_HOME', 'FOUNDOCS_API_KEY', 'FOUNDOCS_PROJECT_ID', 'FOUNDOCS_WORKSPACE_ID', 'STEERDOCS_SETUP_HOME', 'STEERDOCS_API_KEY', 'STEERDOCS_PROJECT_ID', 'STEERDOCS_WORKSPACE_ID'];
 
-export function portableTransport(projectId, version = PACKAGE_VERSION) {
+export function portableTransport(projectId, version = PACKAGE_VERSION, client = 'codex') {
+  if (client === 'claude') return { type: 'stdio', command: 'npx', args: ['--yes', `@foundocs/foundocs-setup@${version}`, 'mcp', '--project-id', projectId] };
   return { command: 'npx', args: ['--yes', `@foundocs/foundocs-setup@${version}`, 'mcp', '--project-id', projectId], env_vars: [...RUNTIME_ENV], startup_timeout_sec: 60 };
 }
 
 function transportOf(server) { return server && { command: server.command, args: server.args }; }
 
-export function portableVersion(server, projectId) {
+export function portableVersion(server, projectId, client = 'codex') {
   if (!plainObject(server) || server.command !== 'npx' || !Array.isArray(server.args) || server.args.length !== 5) return null;
-  if (server.cwd !== undefined || server.env !== undefined || server.url !== undefined || !Array.isArray(server.env_vars) || !RUNTIME_ENV.every(name => server.env_vars.includes(name))) return null;
-  const version = /^@foundocs\/foundocs-setup@(\d+\.\d+\.\d+)$/.exec(server.args[1])?.[1];
-  if (!version || !sameConfig(transportOf(server), transportOf(portableTransport(projectId, version)))) return null;
+  if (server.cwd !== undefined || server.env !== undefined || server.url !== undefined || server.headersHelper !== undefined) return null;
+  if (client === 'claude' ? server.type !== 'stdio' : (!Array.isArray(server.env_vars) || !RUNTIME_ENV.every(name => server.env_vars.includes(name)))) return null;
+  const version = /^@foundocs\/foundocs-setup@((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$/.exec(server.args[1])?.[1];
+  if (!version || !sameConfig(transportOf(server), transportOf(portableTransport(projectId, version, client)))) return null;
   const [major, minor, patch] = version.split('.').map(Number);
-  if (major === 0 && (minor < 3 || (minor === 3 && patch < 4))) return null;
+  if (major === 0 && (minor < 3 || (minor === 3 && patch < (client === 'claude' ? 5 : 4)))) return null;
   return version;
 }
 
-// The journal must record this installation's exact absolute transport. A server
-// name or an instruction marker alone never authorizes replacing it.
+const clientConfigName = client => client === 'claude' ? '.mcp.json' : '.codex/config.toml';
+const clientServers = (text, client) => client === 'claude' ? parseJson(text, '.mcp.json').mcpServers : parseToml(text).mcp_servers;
+const oldTransportOf = (server, client) => client === 'claude' && server ? { type: server.type, url: server.url, headersHelper: server.headersHelper } : transportOf(server);
+
+function matchesLegacyTransport(server, manifest) {
+  if (manifest.client === 'codex') return isAbsolute(server?.command ?? '') && sameConfig(server?.args, [join(dirname(manifest.helperPath), 'bridge-v1.mjs'), manifest.credentialPath, manifest.projectId, manifest.workspaceId, manifest.mcpUrl]);
+  if (server?.type !== 'http' || server.url !== manifest.mcpUrl || typeof server.headersHelper !== 'string') return false;
+  const args = [manifest.helperPath, '--headers', manifest.credentialPath, manifest.projectId, manifest.workspaceId];
+  const suffix = ' ' + helperCommand(args, 'linux');
+  if (server.headersHelper.endsWith(suffix)) {
+    const first = server.headersHelper.slice(0, -suffix.length);
+    if (first.startsWith("'") && first.endsWith("'")) {
+      const node = first.slice(1, -1).replaceAll("'\\''", "'");
+      if (isAbsolute(node) && server.headersHelper === helperCommand([node, ...args], 'linux')) return true;
+    }
+  }
+  const encoded = /^powershell\.exe -NoProfile -NonInteractive -EncodedCommand ([A-Za-z0-9+/=]+)$/.exec(server.headersHelper)?.[1];
+  if (!encoded) return false;
+  const script = Buffer.from(encoded, 'base64').toString('utf16le');
+  const first = /^& '((?:[^']|'')*)' /.exec(script)?.[1];
+  const node = first?.replaceAll("''", "'");
+  return typeof node === 'string' && isAbsolute(node) && server.headersHelper === helperCommand([node, ...args], 'win32');
+}
+
+function unsafeLegacyOverrides(server, client) {
+  return server?.cwd !== undefined || server?.env !== undefined || (client === 'claude'
+    ? ['command', 'args', 'headers', 'oauth', 'auth'].some(key => server?.[key] !== undefined)
+    : server?.url !== undefined);
+}
+
+// Only exact manifest-scoped transports recorded as installer output may migrate.
 async function recordedTransport(root, directory, manifest) {
-  const text = await textFile(join(directory, 'rollback.json'));
-  if (manifest.client !== 'codex') return null;
-  // A completed rollback removes its journal. Keep using the exact transport
-  // previously verified and saved privately by migration, never current file data.
   const previous = manifest.previousTransport;
-  if (isAbsolute(previous?.command ?? '') && sameConfig(previous?.args, [join(dirname(manifest.helperPath), 'bridge-v1.mjs'), manifest.credentialPath, manifest.projectId, manifest.workspaceId, manifest.mcpUrl])) return transportOf(previous);
+  if (matchesLegacyTransport(previous, manifest)) return oldTransportOf(previous, manifest.client);
+  const text = await textFile(join(directory, 'rollback.json'));
   if (text === null) return null;
   const journal = parseJson(text, 'rollback.json');
   if (journal.root !== root || !Array.isArray(journal.entries)) fail('preflight', 'Invalid rollback journal.');
-  const entry = journal.entries.find(entry => entry.path === join(root, '.codex/config.toml'));
+  const entry = journal.entries.find(entry => entry.path === join(root, clientConfigName(manifest.client)));
   if (!entry) return null;
   for (const [source, candidate] of [['after', entry.after], ['before', entry.before]]) {
     if (typeof candidate !== 'string') continue;
-    let config; try { config = parseToml(candidate); } catch { continue; }
+    let servers; try { servers = clientServers(candidate, manifest.client); } catch { continue; }
     for (const name of ['foundocs', legacy.name]) {
-      const server = config.mcp_servers?.[name];
-      if ((source === 'after' || sameConfig(transportOf(server), manifest.previousTransport)) && isAbsolute(server?.command ?? '') && sameConfig(server?.args, [join(dirname(manifest.helperPath), 'bridge-v1.mjs'), manifest.credentialPath, manifest.projectId, manifest.workspaceId, manifest.mcpUrl])) return transportOf(server);
+      const server = servers?.[name];
+      if ((source === 'after' || sameConfig(oldTransportOf(server, manifest.client), previous)) && matchesLegacyTransport(server, manifest)) return oldTransportOf(server, manifest.client);
     }
   }
   return null;
@@ -290,24 +318,22 @@ function replaceTransport(text, oldName, newName, desired, path) {
 
 export async function migrate(rootPath, options = {}) {
   const { root, directory, manifest } = await loadInstallation(rootPath, options);
-  if (manifest.client !== 'codex') return { ok: true, status: 'not_required', changedFiles: [] };
   await checkGitRoot(root);
   return withLock(directory, async () => {
     if (await installedFormat(root, manifest)) fail('preflight', 'First rerun install to migrate the historical project configuration.');
     const { validateInstallation } = await import('./runtime.mjs');
     await validateInstallation(root, directory, manifest, options);
     const ownedTransport = await recordedTransport(root, directory, manifest);
-    const entries = (await plan(root, manifest, manifest.credentialPath, manifest.helperPath, { owned: true, ownedTransport })).filter(entry => entry.path === join(root, '.codex/config.toml'));
-    const version = portableVersion(parseToml(entries[0].after).mcp_servers.foundocs, manifest.projectId);
+    const entries = (await plan(root, manifest, manifest.credentialPath, manifest.helperPath, { owned: true, ownedTransport })).filter(entry => entry.path === join(root, clientConfigName(manifest.client)));
+    const version = portableVersion(clientServers(entries[0].after, manifest.client).foundocs, manifest.projectId, manifest.client);
     const updated = { ...manifest, runtimeVersion: version, ...(ownedTransport ? { previousTransport: ownedTransport } : {}) };
     await atomicWrite(join(directory, 'installation.json'), json(updated));
     const changes = await applyProjectChanges(root, directory, entries);
-    return { ok: true, status: changes.length ? 'migrated' : 'already_portable', changedFiles: changes.map(entry => entry.path), credentialRetained: true, next: 'Restart or reconnect Codex MCP, then call get_project_context to verify the host connection.' };
+    return { ok: true, status: changes.length ? 'migrated' : 'already_portable', changedFiles: changes.map(entry => entry.path), credentialRetained: true, next: 'Restart or reconnect the selected client MCP, then call get_project_context to verify the host connection.' };
   });
 }
 
 export async function plan(root, input, credentialPath, helperPath, { oldFormat = false, owned = false, includeSkills = false, ownedTransport = null } = {}) {
-  const command = helperCommand([process.execPath, helperPath, '--headers', credentialPath, input.projectId, input.workspaceId]);
   const entries = [];
   const add = async (name, transform) => {
     const path = join(root, name); await safeParent(root, path);
@@ -342,16 +368,21 @@ export async function plan(root, input, credentialPath, helperPath, { oldFormat 
       const config = text === null ? {} : parseJson(text, path);
       if (config.mcpServers !== undefined && !plainObject(config.mcpServers)) fail('preflight', 'mcpServers must be an object.', { path });
       config.mcpServers ??= {};
-      const desired = { type: 'http', url: input.mcpUrl, headersHelper: command };
       const old = config.mcpServers[serverName];
       const historicalServer = oldFormat ? undefined : config.mcpServers[legacy.name];
-      if (historicalServer !== undefined) {
-        if (!owned || old !== undefined || !sameConfig(historicalServer, desired)) fail('preflight', 'Historical MCP configuration is not exclusively owned by this installation. Preserve it and resolve the conflict before retrying.', { path });
-        delete config.mcpServers[legacy.name];
-      }
-      if (old !== undefined && !sameConfig(old, desired)) fail('preflight', 'An existing Foundocs MCP server differs. Preserve it and resolve the name conflict before retrying.', { path });
-      if (old) return text;
-      config.mcpServers[serverName] = desired; return json(config);
+      if (historicalServer !== undefined && old !== undefined) fail('preflight', 'Both current and historical MCP servers exist. Preserve them and resolve the conflict.', { path });
+      const existing = old ?? historicalServer;
+      const existingName = old === undefined && historicalServer !== undefined ? legacy.name : serverName;
+      const pinned = portableVersion(existing, input.projectId, 'claude');
+      const desired = portableTransport(input.projectId, pinned ?? input.runtimeVersion ?? PACKAGE_VERSION, 'claude');
+      if (existing !== undefined) {
+        if (pinned && existingName === serverName) return text;
+        if (pinned ? !owned : (!ownedTransport || !sameConfig(oldTransportOf(existing, 'claude'), ownedTransport) || unsafeLegacyOverrides(existing, 'claude'))) fail('preflight', 'An existing Foundocs MCP server is not a verified installer-owned transport. Preserve it and resolve the conflict before retrying.', { path });
+        const { type, url, headersHelper, ...custom } = existing;
+        config.mcpServers[serverName] = { ...custom, ...desired };
+        if (existingName !== serverName) delete config.mcpServers[existingName];
+      } else config.mcpServers[serverName] = desired;
+      return json(config);
     });
   } else {
     await add('.codex/config.toml', (text, path) => {
@@ -627,8 +658,8 @@ export async function install(rootPath, rawInput, options = {}) {
     await atomicWrite(join(base, 'legacy-compat.mjs'), await readFile(COMPAT_SOURCE, 'utf8'));
     await atomicWrite(helperPath, await readFile(AUTH_SOURCE, 'utf8'));
     if (bridgeSource) await atomicWrite(join(base, 'bridge-v1.mjs'), bridgeSource);
-    const portable = input.client === 'codex' ? parseToml(entries.find(entry => entry.path === join(root, '.codex/config.toml')).after).mcp_servers.foundocs : null;
-    const manifest = { version: 1, brandingVersion: 2, ...(portable ? { runtimeVersion: portableVersion(portable, input.projectId) } : {}), ...(ownedTransport ? { previousTransport: ownedTransport } : previousManifest?.previousTransport ? { previousTransport: previousManifest.previousTransport } : {}), root, client: input.client, projectId: input.projectId, workspaceId: input.workspaceId, attemptId: saved.attemptId, mcpUrl: input.mcpUrl, credentialPath, helperPath };
+    const portable = clientServers(entries.find(entry => entry.path === join(root, clientConfigName(input.client))).after, input.client).foundocs;
+    const manifest = { version: 1, brandingVersion: 2, ...(portable ? { runtimeVersion: portableVersion(portable, input.projectId, input.client) } : {}), ...(ownedTransport ? { previousTransport: ownedTransport } : previousManifest?.previousTransport ? { previousTransport: previousManifest.previousTransport } : {}), root, client: input.client, projectId: input.projectId, workspaceId: input.workspaceId, attemptId: saved.attemptId, mcpUrl: input.mcpUrl, credentialPath, helperPath };
     // Persist metadata before project writes so doctor and rollback survive interruption.
     await atomicWrite(manifestPath, json(manifest));
     await stageSkills(skills);
@@ -658,22 +689,22 @@ export async function loadInstallation(rootPath, options) {
 
 export async function doctor(rootPath, options = {}) {
   const { root, directory, manifest } = await loadInstallation(rootPath, options);
-  const runtimeFiles = manifest.client === 'codex' && manifest.runtimeVersion ? [] : [manifest.helperPath, ...(manifest.brandingVersion === 2 ? [join(dirname(manifest.helperPath), 'legacy-compat.mjs')] : []), ...(manifest.client === 'codex' ? [join(dirname(manifest.helperPath), 'bridge-v1.mjs')] : [])];
+  const runtimeFiles = manifest.runtimeVersion ? [] : [manifest.helperPath, ...(manifest.brandingVersion === 2 ? [join(dirname(manifest.helperPath), 'legacy-compat.mjs')] : []), ...(manifest.client === 'codex' ? [join(dirname(manifest.helperPath), 'bridge-v1.mjs')] : [])];
   for (const path of runtimeFiles) if (await textFile(path) === null) fail('diagnostic', 'A durable authentication helper is missing. Rerun install to repair it.', { path });
   const oldFormat = await textFile(join(root, 'foundocs.json')) === null && await textFile(join(root, legacy.config)) !== null;
   const skills = await checkSkills(root, directory, manifest, oldFormat);
-  if (manifest.client === 'codex') {
-    let config;
-    try { config = parseToml(await textFile(join(root, '.codex/config.toml')) ?? ''); }
+  {
+    let servers;
+    try { servers = clientServers(await textFile(join(root, clientConfigName(manifest.client))) ?? '{}', manifest.client); }
     catch { fail('diagnostic', 'MCP configuration is malformed or unsafe. Resolve the configuration conflict before retrying.'); }
-    const server = config.mcp_servers?.foundocs;
-    const version = portableVersion(server, manifest.projectId);
+    const server = servers?.foundocs;
+    const version = portableVersion(server, manifest.projectId, manifest.client);
     if (server?.command === 'npx' && (!version || version !== manifest.runtimeVersion)) fail('diagnostic', 'Portable MCP configuration differs from the recorded runtime or contains unsupported execution overrides. Reconcile this configuration before retrying.');
     if (!version) {
       const ownedTransport = await recordedTransport(root, directory, manifest);
-      const legacyServer = server ?? config.mcp_servers?.[legacy.name];
-      if (!ownedTransport || !sameConfig(transportOf(legacyServer), ownedTransport) || legacyServer.cwd !== undefined || legacyServer.env !== undefined || legacyServer.url !== undefined) fail('diagnostic', 'MCP configuration differs from the recorded transport. Resolve the configuration conflict before retrying.');
-      fail('diagnostic', 'This Codex installation uses a machine-specific transport. Run foundocs-setup migrate --root with this exact root; no new connection code is needed.');
+      const legacyServer = server ?? servers?.[legacy.name];
+      if (!ownedTransport || !sameConfig(oldTransportOf(legacyServer, manifest.client), ownedTransport) || unsafeLegacyOverrides(legacyServer, manifest.client)) fail('diagnostic', 'MCP configuration differs from the recorded transport. Resolve the configuration conflict before retrying.');
+      fail('diagnostic', 'This installation uses a machine-specific transport. Run foundocs-setup migrate --root with this exact root; no new connection code is needed.');
     }
     const { resolveRuntime } = await import('./runtime.mjs');
     await resolveRuntime(manifest.projectId, { ...options, cwd: root });

@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readFile, writeFile, rm, realpath, readdir, rename, sym
 import { basename, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { parse, stringify } from 'smol-toml';
-import { install, doctor, rollback, storageBase } from '../src/setup.mjs';
+import { install, doctor, rollback, storageBase, helperCommand } from '../src/setup.mjs';
 import { readCredential } from '../src/auth.mjs';
 
 const projectId = '8e68aeb1-3a40-454f-a74d-672307e12a37';
@@ -50,6 +50,16 @@ async function fixture(t, client = 'codex', { keepJournal = false } = {}) {
     journal.entries.find(entry => entry.path === configPath).after = await readFile(configPath, 'utf8');
     await writeFile(journalPath, JSON.stringify(journal));
   }
+  if (client === 'claude') {
+    const configPath = join(root, '.mcp.json');
+    const config = JSON.parse(await readFile(configPath, 'utf8'));
+    config.mcpServers.foundocs = { type: 'http', url: input.mcpUrl, headersHelper: helperCommand([process.execPath, manifest.helperPath, '--headers', manifest.credentialPath, projectId, workspaceId]) };
+    await writeFile(configPath, JSON.stringify(config));
+    const journalPath = join(directory, 'rollback.json');
+    const journal = JSON.parse(await readFile(journalPath, 'utf8'));
+    journal.entries.find(entry => entry.path === configPath).after = await readFile(configPath, 'utf8');
+    await writeFile(journalPath, JSON.stringify(journal));
+  }
   const historical = value => value.replaceAll('foundocs', 'steerdocs').replaceAll('FOUNDOCS', 'STEERDOCS');
   const configName = client === 'codex' ? '.codex/config.toml' : '.mcp.json';
   for (const name of ['AGENTS.md', configName, ...(client === 'claude' ? ['CLAUDE.md'] : [])]) {
@@ -61,12 +71,12 @@ async function fixture(t, client = 'codex', { keepJournal = false } = {}) {
     const journal = JSON.parse(await readFile(journalPath, 'utf8'));
     journal.entries = journal.entries.filter(entry => !entry.path.startsWith(`${assetRoot}/`) && !entry.path.startsWith(`${dreamingRoot}/`));
     await writeFile(journalPath, historical(JSON.stringify(journal)));
-  } else if (client === 'codex') {
+  } else {
     const journal = JSON.parse(historical(await readFile(journalPath, 'utf8')));
-    journal.entries = journal.entries.filter(entry => entry.path === join(root, '.codex/config.toml'));
+    journal.entries = journal.entries.filter(entry => entry.path === join(root, configName));
     journal.entries[0].before = journal.entries[0].after;
     await writeFile(journalPath, JSON.stringify(journal));
-  } else await rm(journalPath);
+  }
   return { homeDir, root, storageDir, directory, manifest, configName, options, input: { ...input, client }, exchanges: () => exchanges };
 }
 

@@ -26,7 +26,7 @@ async function privateFile(path) {
 export async function validateInstallation(root, directory, manifest) {
   const base = dirname(dirname(directory));
   await privateFile(join(directory, 'installation.json'));
-  if (manifest.version !== 1 || manifest.client !== 'codex' || manifest.root !== root || !UUID.test(manifest.projectId) || !UUID.test(manifest.workspaceId) || !UUID.test(manifest.attemptId)) throw unavailable();
+  if (manifest.version !== 1 || !['codex', 'claude'].includes(manifest.client) || manifest.root !== root || !UUID.test(manifest.projectId) || !UUID.test(manifest.workspaceId) || !UUID.test(manifest.attemptId)) throw unavailable();
   validateUrl(manifest.mcpUrl);
   const expected = join(base, 'credentials', manifest.workspaceId, manifest.projectId, digest(root), 'key.json');
   if (!isAbsolute(manifest.credentialPath) || manifest.credentialPath !== expected) throw unavailable();

@@ -10,6 +10,7 @@ import { createServer } from 'node:http';
 import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { parse, stringify } from 'smol-toml';
+import { helperCommand } from '../src/setup.mjs';
 
 const exec = promisify(execFile);
 const packageRoot = fileURLToPath(new URL('..', import.meta.url));
@@ -29,7 +30,7 @@ const args = process.argv.slice(2);
 if (args[0] === '--version') { console.log('isolated-capability-fixture'); process.exit(0); }
 if (args.includes('get')) { console.log(JSON.stringify({transport:{type:'stdio',command:process.execPath,args:['--version']}})); process.exit(0); }
 const configuration = JSON.parse(args.at(-1));
-if (typeof configuration.headersHelper !== 'string') process.exit(1);
+if (configuration.type !== 'stdio' || typeof configuration.command !== 'string' || !Array.isArray(configuration.args)) process.exit(1);
 fs.writeFileSync('.mcp.json', JSON.stringify({mcpServers:{foundocs_setup_probe:configuration}}));
 `;
 
@@ -53,7 +54,7 @@ function command(cli, root, env, operation, input) {
   });
 }
 
-test('AC-26/28/29/30/31/33/38/42/43/44/45/46/48: packed CLI installs both clients, updates offline, diagnoses HTTP MCP and rolls back', { skip: process.platform === 'win32', timeout: 120000 }, async t => {
+test('AC-26/28/29/30/31/33/38/42/43/44/45/46/48/49/50/51/52: packed CLI installs both clients, updates offline, diagnoses HTTP MCP and rolls back', { skip: process.platform === 'win32', timeout: 120000 }, async t => {
   const base = await realpath(await mkdtemp(join(tmpdir(), 'foundocs-packed-cli-')));
   t.after(() => rm(base, { recursive: true, force: true }));
   const packed = JSON.parse((await exec('npm', ['pack', '--json', '--pack-destination', base], { cwd: packageRoot, env: { ...process.env, npm_config_cache: join(base, 'npm-cache') }, maxBuffer: 1024 * 1024 })).stdout)[0];
@@ -131,10 +132,11 @@ globalThis.fetch = async (url, options) => {
     const [installationName] = await readdir(join(storage, 'projects'));
     const directory = join(storage, 'projects', installationName);
     const manifest = JSON.parse(await readFile(join(directory, 'installation.json'), 'utf8'));
-    if (client === 'codex') {
-      const configurationPath = join(root, '.codex/config.toml');
+    {
+      const configName = client === 'codex' ? '.codex/config.toml' : '.mcp.json';
+      const configurationPath = join(root, configName);
       const sharedText = await readFile(configurationPath, 'utf8');
-      const config = parse(sharedText).mcp_servers.foundocs;
+      const config = client === 'codex' ? parse(sharedText).mcp_servers.foundocs : JSON.parse(sharedText).mcpServers.foundocs;
       const connect = async (cwd, runtimeEnv) => {
         const transport = new StdioClientTransport({ command: process.execPath, args: [cli, ...config.args.slice(2)], cwd, env: runtimeEnv, stderr: 'pipe' });
         let stderr = ''; transport.stderr?.on('data', data => { stderr += data; });
@@ -149,7 +151,7 @@ globalThis.fetch = async (url, options) => {
       const nested = join(root, 'src', '하위 directory'); await mkdir(nested, { recursive: true });
       await connect(nested, env);
       // A teammate clones only shared files and authenticates through their own store.
-      const clone = join(base, '팀원 clone'), cloneStorage = join(base, 'clone-private');
+      const clone = join(base, `${client} 팀원 clone`), cloneStorage = join(base, `${client}-clone-private`);
       await cp(root, clone, { recursive: true });
       const cloneEnv = { ...env, FOUNDOCS_SETUP_HOME: cloneStorage };
       await assert.rejects(exec(process.execPath, [cli, 'mcp', '--project-id', projectId], { cwd: clone, env: cloneEnv }), error => {
@@ -158,7 +160,7 @@ globalThis.fetch = async (url, options) => {
       });
       const linked = await command(cli, clone, cloneEnv, 'install', input);
       assert.equal(linked.status, 0); assert.deepEqual(linked.result.changedFiles, []);
-      const cloneConfig = join(clone, '.codex/config.toml');
+      const cloneConfig = join(clone, configName);
       assert.equal(await readFile(cloneConfig, 'utf8'), sharedText);
       const [cloneInstallation] = await readdir(join(cloneStorage, 'projects'));
       const cloneDirectory = join(cloneStorage, 'projects', cloneInstallation);
@@ -167,10 +169,10 @@ globalThis.fetch = async (url, options) => {
       const cloneKey = await readFile(cloneManifest.credentialPath, 'utf8');
       assert.notEqual(JSON.parse(cloneKey).value, JSON.parse(await readFile(manifest.credentialPath, 'utf8')).value);
       await connect(join(clone, 'src', '하위 directory'), cloneEnv);
-      assert.equal(authenticatedKeys.size, 2);
+      assert.equal(authenticatedKeys.size, issuedKeys.size);
       // Reproduce a recorded pre-portable installation, then drive migration
       // exclusively through the extracted CLI, forbidding network access.
-      const legacyText = '# preserved team note\n' + stringify({ mcp_servers: { foundocs: { command: process.execPath, args: [join(cloneStorage, 'bridge-v1.mjs'), cloneManifest.credentialPath, projectId, workspaceId, input.mcpUrl], tool_timeout_sec: 77 } } }).trimEnd();
+      const legacyText = client === 'claude' ? JSON.stringify({ custom: { preserved: true }, mcpServers: { other: { command: 'other' }, foundocs: { type: 'http', url: input.mcpUrl, headersHelper: helperCommand([process.execPath, cloneManifest.helperPath, '--headers', cloneManifest.credentialPath, projectId, workspaceId]) } } }) : '# preserved team note\n' + stringify({ mcp_servers: { foundocs: { command: process.execPath, args: [join(cloneStorage, 'bridge-v1.mjs'), cloneManifest.credentialPath, projectId, workspaceId, input.mcpUrl], tool_timeout_sec: 77 } } }).trimEnd();
       await writeFile(cloneConfig, legacyText);
       delete cloneManifest.runtimeVersion;
       await writeFile(cloneManifestPath, JSON.stringify(cloneManifest));
@@ -184,8 +186,22 @@ globalThis.fetch = async (url, options) => {
       assert.equal((await command(cli, clone, cloneOffline, 'migrate')).result.status, 'migrated');
       assert.equal(await readFile(cloneManifest.credentialPath, 'utf8'), cloneKey);
       assert.equal(requests.length, requestsBeforeMigration);
-      assert.ok((await readFile(cloneConfig, 'utf8')).startsWith('# preserved team note'));
+      if (client === 'codex') assert.ok((await readFile(cloneConfig, 'utf8')).startsWith('# preserved team note'));
+      else assert.equal(JSON.parse(await readFile(cloneConfig, 'utf8')).custom.preserved, true);
       await connect(join(clone, 'src', '하위 directory'), cloneEnv);
+      // The actual tarball entry point must fail closed before HTTP when the
+      // credential is malformed or belongs to a different endpoint.
+      for (const broken of ['{', JSON.stringify({ ...JSON.parse(cloneKey), mcpUrl: 'https://wrong.invalid/mcp' })]) {
+        await writeFile(cloneManifest.credentialPath, broken);
+        const requestCount = requests.length;
+        await assert.rejects(exec(process.execPath, [cli, 'mcp', '--project-id', projectId], { cwd: clone, env: cloneEnv }), error => {
+          assert.equal(error.stdout, ''); assert.match(error.stderr, /configured safely/);
+          assert.ok(!error.stderr.includes(key) && !error.stderr.includes(cloneManifest.credentialPath)); return true;
+        });
+        assert.equal(requests.length, requestCount);
+      }
+      await writeFile(cloneManifest.credentialPath, cloneKey);
+      await connect(clone, cloneEnv);
       const nearer = join(clone, 'src', 'foundocs.json'); await writeFile(nearer, '{');
       const requestsBeforeFailure = requests.length;
       await assert.rejects(exec(process.execPath, [cli, 'mcp', '--project-id', projectId], { cwd: join(clone, 'src'), env: cloneEnv }), error => {
@@ -251,7 +267,7 @@ globalThis.fetch = async (url, options) => {
     assert.equal(await readFile(changedPath, 'utf8'), changed);
     assert.deepEqual(await snapshot(protectedPaths), before);
   }
-  assert.equal(requests.filter(method => method === 'exchange').length, 3);
+  assert.equal(requests.filter(method => method === 'exchange').length, 4);
   assert.deepEqual(serverErrors, []);
   t.diagnostic(`Packed ${packed.name}@${packed.version}; actual CLI and HTTP MCP passed for both clients. Dependencies resolved from local node_modules; host capability probes substituted.`);
 });
