@@ -2,7 +2,7 @@
 
 Use the installation prompt from your project's Foundocs integration guide. It contains a ten-minute, one-use connection code, never an API key. The coding agent fixes an absolute project root and sends the prompt's JSON to the installer's **private stdin** using a process tool. Do not paste the JSON into shell command text, argv, logs, or a committed file.
 
-Version **0.3.1** adds same-turn capture of durable user-provided project context without a separate remember/save request, plus consent-based skill update checks. For local development verification, build this package and run from its directory:
+Version **0.3.2** connects releases to this public source repository and its trusted publishing workflow. Installer behavior is unchanged from 0.3.1, which added same-turn capture of durable user-provided project context and consent-based skill update checks. For local development verification, build this package and run from its directory:
 
 ```text
 node src/cli.mjs install --root /absolute/project
@@ -45,7 +45,7 @@ Existing recorded installations can update the skill and managed instructions wi
 node /absolute/path/to/foundocs-setup/src/cli.mjs update-skills --root /absolute/project
 ```
 
-For the published 0.3.1 release, the equivalent command is `npx --yes @foundocs/foundocs-setup@0.3.1 update-skills --root /absolute/project`. The local commands above run this checkout; a pinned npm command requires that registry release to exist.
+After 0.3.2 is published, the equivalent command is `npx --yes @foundocs/foundocs-setup@0.3.2 update-skills --root /absolute/project`. The local commands above run this checkout; a pinned npm command requires that registry release to exist.
 
 Updates preserve MCP settings, project configuration, authentication helpers and private keys, including installations that still use the historical configuration filename. The private `skills.json` records installed/pending asset hashes for interruption recovery. Foreign same-name files and local skill edits stop installation/update before project writes; move or reconcile the reported file explicitly, then retry. Unrelated skills and instructions are retained. `rollback` includes skill assets and preserves concurrent edits.
 
