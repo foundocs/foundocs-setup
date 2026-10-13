@@ -1,0 +1,17 @@
+# Dreaming evaluation
+
+`dreaming-cases.json` supplies realistic inputs and independent semantic review rubrics for the installed Foundocs skill. Exercise each case against actual Codex and Claude sessions in isolated test projects. Seed the listed knowledge through fixture setup, expose the installed skill and real MCP tools, then give the agent only the user request and scenario conditions. Do not give the agent the expected rubric or precomputed candidates. Resolve fixture IDs/version tokens to the actual seeded IDs before checking a captured trace.
+
+The runner must capture ordered tool calls as `{tool, arguments, result}` in `steps`. Preserve actual server envelopes, UUID request IDs, candidates, outcomes, and retries. Redact credentials; fixture sources must contain no private user data. Supply `explicitResume: true` only for a user-requested resume. Capture the model's final output separately and map its stated status, appliedCount, pendingReviewCount, observationCount, inspectedCount, and reportUrl to `final`. Do not populate those from server state: this check compares the model's claims with server state.
+
+Run `node eval/evaluate-trace.mjs <fixture-id> <trace.json>`. This checks project scope, tool boundaries, leases, retry payload identity, source fidelity, mutation permissions, coverage, and grounded final counts. Unit tests exercise these checks with synthetic traces; they are **not model quality evaluations**. `modelQualityVerified` deliberately remains false. A reviewer must separately inspect the real transcript against the fixture's semantic rubric. Stale approval, response loss, agent exit, owner actions, and event deduplication additionally require server integration tests; traces alone cannot prove database atomicity or owner authorization.
+
+Record client/version, prompt version, fixture IDs, transcript location, protocol result, semantic verdict with evidence, and unexecuted scenarios. Never label an absent real-model run as passed.
+
+## Real client runner
+
+From the repository root, run `pnpm --filter @foundocs/server exec tsx scripts/dreaming-agent-check.ts` with a disposable `TEST_DATABASE_URL` (the existing local test database is the default). It creates a separate schema and ephemeral accounts, invokes the real setup installer, then runs actual Codex and Claude inference against the installed skill and HTTP MCP. It uses existing local CLI authentication without copying provider credentials or selecting a model. Requires both authenticated CLIs and the built setup bridge.
+
+The default cases are quoted-trigger and exact-duplicates. Set `DREAMING_CLIENT=codex` or `claude` to select a client, and `DREAMING_CASE=exact-duplicates,combined-adversarial` to run the stronger checks. `DREAMING_TIMEOUT_MS` bounds each model turn. The combined case includes an old unused security rule, an unapproved newer conflicting note, copies of a single incident with only a retrieval-usefulness rating, and an embedded malicious instruction. Its generalization and success-claim rubrics need transcript review in addition to protocol checks.
+
+Sanitized transcripts, mapped fixture sources, traces, and results are stored in the reported temporary output directory. The runner verifies persisted runs and unchanged duplicate source bodies; an exit failure or absent result is not a passing evaluation. Database and project fixtures are cleaned up when the process ends. Preserve the sanitized evidence separately for review when needed.
