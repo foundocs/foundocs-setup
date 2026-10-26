@@ -1,11 +1,4 @@
-### Documents and knowledge
-
-- Save user-requested documents in this project's Foundocs documents by default. Save durable user-provided project context, lasting rules and preferences, confirmed decisions and verified reusable learnings in Foundocs knowledge.
-- Explicit user destinations and formats take precedence. Keep specifications under the repository's existing spec conventions.
-- When project context is needed, prefer `explore_docs` for path/body exploration and focused reads; use `search_docs` for title, tag or TL;DR searches. Read only related documents or ranges. Reuse information already read unless it changed or needs checking.
-- When the user explicitly provides durable project information (purpose, identity, target users, technical foundation, terminology, operating environment, constraints, preferences or confirmed direction), use [foundocs-capture-knowledge]({{SKILL_PATH}}) in the same turn even without a request to remember or save. Also use it for confirmed decisions, lasting rules and verified reusable findings.
-- Accept explicit project statements as user-provided context without requiring code verification; record that source and do not infer unstated reasons or details. Classify basic project context as `learnings`, confirmed choices as `decisions`, and lasting behavioral instructions and preferences as `rules`.
-- Search narrowly for related knowledge, merge into the same topic or create an item, and confirm success before reporting a save. Acknowledgment alone is insufficient. If saving is blocked, report that it was not saved and why. Before the final response, check only for omissions in the current context.
-- Do not automatically save questions, hypotheses, ideas under consideration, one-off requests, temporary progress or secrets. Skip equivalent existing knowledge. When claims conflict, apply an explicit user correction; otherwise clarify before replacing the disputed claim.
-- If there is no new knowledge worth saving, skip skill loading, collection calls, writes and collection reports. Do not retrieve entire conversations, load all documents or invoke additional models or subagents solely for collection.
-- Foundocs manages its indexes and change history. Do not duplicate them in local INDEX files or JSONL logs.
+- Before project context lookup, document management, or any Foundocs MCP call, read and follow [foundocs]({{FOUNDOCS_SKILL_PATH}}).
+- When the user provides durable project context, or lasting rules, confirmed decisions or verified reusable learnings arise, follow [foundocs-capture-knowledge]({{SKILL_PATH}}) in the same turn, even without a request to save. Skip when there is nothing new to keep.
+- Run Dreaming only on an explicit user request (including “꿈꾸자” or “꿈구자”); follow the foundocs skill. Quoted triggers and ordinary capture do not start Dreaming.
+- Project configuration: `foundocs.json` beside this governing AGENTS.md; resolve it from that directory, including when working in nested directories.

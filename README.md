@@ -95,7 +95,7 @@ Development: `npm ci`, `npm test`, and `npm run typecheck`.
 
 ## Knowledge skills (0.3.1)
 
-The 0.3.1 source includes the English `foundocs-capture-knowledge` skill and writing guide, plus the `foundocs` Dreaming skill and protocol reference. `install` copies the same bundle into `.agents/skills/` for Codex or `.claude/skills/` for Claude Code, and adds the exact skill link plus document/knowledge policy to its managed AGENTS block. Claude also receives the existing CLAUDE reference. Explicit user destinations and repository spec conventions take precedence over default Foundocs storage.
+The 0.3.1 source includes the English `foundocs-capture-knowledge` skill and writing guide, plus the `foundocs` Dreaming skill and protocol reference. `install` copies the same bundle into `.agents/skills/` for Codex or `.claude/skills/` for Claude Code, and adds a compact bootstrap with exact skill links and trigger conditions to its managed AGENTS block. Configuration validation, document/knowledge policy, update checks and Dreaming procedures are read from the selected skill and its references only when needed. The bootstrap retains same-turn knowledge-capture and explicit Dreaming triggers, plus the governing configuration location; unrelated tasks do not need the full procedures. Claude also receives the existing CLAUDE reference. Explicit user destinations and repository spec conventions take precedence over default Foundocs storage.
 
 Existing recorded installations can update the skill and managed instructions without supplying a connection code, contacting the service or rotating credentials:
 
@@ -113,9 +113,15 @@ The package's `skills/` and `templates/` directories must be included in every t
 
 Dreaming adversarial fixtures and trace checks live in `eval/`; see `eval/README.md`. These checks do not claim real-model quality evaluation.
 
+## Session discovery
+
+The Foundocs skill reached through the managed bootstrap guides the agent to resolve the configured project and read `get_project_context({ project_id, view: "index" })` once on the first use of each project in a session. The compact index combines frequently retrieved, recently beneficial and recently updated documents and knowledge. It is a discovery shortcut: if an entry is absent or insufficient, the agent continues with metadata, path and body searches across active content. Index exposure does not add retrieval records.
+
+Older servers without index mode remain usable through the existing context call and search tools. This does not install a host session-start hook or change the consent-based update policy. The same instructions ship in new installations and `update-skills`.
+
 ## Update offers
 
-The managed AGENTS block and Foundocs skill guide the agent to run the bundled `foundocs/scripts/check-update.mjs` once on the first Foundocs use in a session. This is guidance, not an installed host session-start hook. The Node script only queries public npm metadata: it does not download or execute another package, send project identifiers or credentials, or change project files.
+The compact managed AGENTS block routes Foundocs work to the Foundocs skill, which guides the agent to run the bundled `foundocs/scripts/check-update.mjs` once on the first Foundocs use in a session. This is guidance, not an installed host session-start hook. The Node script only queries public npm metadata: it does not download or execute another package, send project identifiers or credentials, or change project files.
 
 Each project has a private cache under `~/.local/share/foundocs/setup/update-checks` (or the same subdirectory of `FOUNDOCS_SETUP_HOME`). Checks and repeated offers are limited to once per 24 hours. A newer stable release includes its published summary when available; missing summaries are reported as unavailable. Network, runtime and cache failures quietly leave ordinary work usable.
 

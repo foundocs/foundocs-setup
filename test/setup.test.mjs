@@ -69,7 +69,10 @@ for (const client of ['codex', 'claude']) test(`${client}: preserves foreign set
   assert.ok(agents.startsWith('# Existing instructions\nKeep this rule.\n'));
   assert.equal(agents.split('<!-- foundocs:setup:start -->').length, 2);
   assert.equal((await stat(join(f.root, 'AGENTS.md'))).mode & 0o777, 0o600);
-  assert.match(agents, /never reinterpret the root/);
+  const prefix = client === 'codex' ? '.agents' : '.claude';
+  assert.ok(agents.includes(`](${prefix}/skills/foundocs/SKILL.md)`));
+  const configuration = await readFile(join(f.root, prefix, 'skills/foundocs/references/configuration.md'), 'utf8');
+  assert.match(configuration, /never reinterpret the root/);
   const configText = await readFile(join(f.root, client === 'codex' ? '.codex/config.toml' : '.mcp.json'), 'utf8');
   const config = client === 'codex' ? parse(configText) : JSON.parse(configText);
   assert.ok((config.mcp_servers ?? config.mcpServers).other);

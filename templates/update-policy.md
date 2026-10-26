@@ -1,3 +1,0 @@
-### Skill updates
-
-On the first Foundocs use in a session, read [the local update guide]({{UPDATE_GUIDE_PATH}}) and run its bundled Node checker once with the absolute governing AGENTS.md directory as `--root`. It caches public version checks for 24 hours. If it reports `shouldPrompt: true`, explain the offered version and release summary and ask whether to update now or later. Only after explicit approval run `update-skills` for that exact version. “Later” defers that version for seven days. Do not download/run a newer package merely to check, overwrite local skill edits, or block normal work on a failed check. This instruction is not a guaranteed session-start hook.

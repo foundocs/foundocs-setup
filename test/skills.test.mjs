@@ -85,6 +85,27 @@ test('AC-26: both clients install the same English skill and references with res
     contents.push(files);
     const agents = await readFile(join(f.root, 'AGENTS.md'), 'utf8');
     assert.ok(agents.startsWith(originalAgents));
+    const block = agents.split('<!-- foundocs:setup:start -->')[1]?.split('<!-- foundocs:setup:end -->')[0]
+      ?? agents.split('<!-- steerdocs:setup:start -->')[1].split('<!-- steerdocs:setup:end -->')[0];
+    assert.ok(block.length < 1200, 'always-loaded bootstrap must stay compact');
+    assert.doesNotMatch(block, /view: "index"|shouldPrompt|dream_memory/);
+    assert.match(block, /same turn/);
+    assert.match(block, /explicit user request/);
+    const prefix = client === 'codex' ? '.agents' : '.claude';
+    assert.ok(block.includes(`](${prefix}/skills/foundocs/SKILL.md)`));
+    const documents = await readFile(join(f.root, prefix, 'skills/foundocs/references/documents.md'), 'utf8');
+    assert.match(documents, /view: "index"/);
+    assert.match(documents, /missing entries do not prove absence/);
+    assert.match(documents, /older server lacks index mode/);
+    assert.match(documents, /Explicit user destinations and formats take precedence/);
+    const configuration = await readFile(join(f.root, prefix, 'skills/foundocs/references/configuration.md'), 'utf8');
+    assert.match(configuration, /never reinterpret the root/);
+    assert.match(configuration, /stop all Foundocs calls/);
+    const discoverySkill = await readFile(join(f.root, client === 'codex' ? '.agents' : '.claude', 'skills/foundocs/SKILL.md'), 'utf8');
+    assert.match(discoverySkill, /recently beneficial retrievals/);
+    assert.match(discoverySkill, /Never conclude that a document does not exist/);
+    assert.match(discoverySkill, /unsupported-view validation error/);
+
     assert.ok(agents.includes(`](${assetDirectory(client)}/SKILL.md)`));
     assert.equal(await readFile(foreign, 'utf8'), 'Keep my unrelated skill.');
     if (client === 'claude') assert.ok((await readFile(join(f.root, 'CLAUDE.md'), 'utf8')).startsWith('# Unrelated Claude instructions\n'));
@@ -108,6 +129,27 @@ for (const client of ['codex', 'claude']) for (const historical of [false, true]
     assert.deepEqual(await snapshot(saved.protectedPaths), before);
     const agents = await readFile(join(f.root, 'AGENTS.md'), 'utf8');
     assert.ok(agents.startsWith(originalAgents));
+    const block = agents.split('<!-- foundocs:setup:start -->')[1]?.split('<!-- foundocs:setup:end -->')[0]
+      ?? agents.split('<!-- steerdocs:setup:start -->')[1].split('<!-- steerdocs:setup:end -->')[0];
+    assert.ok(block.length < 1200, 'always-loaded bootstrap must stay compact');
+    assert.doesNotMatch(block, /view: "index"|shouldPrompt|dream_memory/);
+    assert.match(block, /same turn/);
+    assert.match(block, /explicit user request/);
+    const prefix = client === 'codex' ? '.agents' : '.claude';
+    assert.ok(block.includes(`](${prefix}/skills/foundocs/SKILL.md)`));
+    const documents = await readFile(join(f.root, prefix, 'skills/foundocs/references/documents.md'), 'utf8');
+    assert.match(documents, /view: "index"/);
+    assert.match(documents, /missing entries do not prove absence/);
+    assert.match(documents, /older server lacks index mode/);
+    assert.match(documents, /Explicit user destinations and formats take precedence/);
+    const configuration = await readFile(join(f.root, prefix, 'skills/foundocs/references/configuration.md'), 'utf8');
+    assert.match(configuration, /never reinterpret the root/);
+    assert.match(configuration, /stop all Foundocs calls/);
+    const discoverySkill = await readFile(join(f.root, client === 'codex' ? '.agents' : '.claude', 'skills/foundocs/SKILL.md'), 'utf8');
+    assert.match(discoverySkill, /recently beneficial retrievals/);
+    assert.match(discoverySkill, /Never conclude that a document does not exist/);
+    assert.match(discoverySkill, /unsupported-view validation error/);
+
     assert.ok(agents.includes(`${historical ? 'steerdocs' : 'foundocs'}.json`));
     assert.ok(agents.includes(`${assetDirectory(client)}/SKILL.md`));
     assert.deepEqual((await updateSkills(f.root, offlineOptions(f))).changedFiles, []);
@@ -297,4 +339,24 @@ for (const client of ['codex', 'claude']) test(`${client}: existing knowledge bu
   assert.deepEqual(await snapshot(protectedPaths), before);
   assert.equal(await readFile(join(dreamRoot, 'SKILL.md')).catch(error => error.code), 'ENOENT');
   assert.equal(f.calls.exchange, 1);
+});
+
+for (const client of ['codex', 'claude']) test(`${client}: update replaces a verbose managed block while preserving surrounding instructions and rollback`, async t => {
+  const f = await fixture(t, client);
+  const saved = await preSkillInstallation(f, false);
+  const agentsPath = join(f.root, 'AGENTS.md');
+  const suffix = '\n# User instructions after Foundocs\nKeep these too.\n';
+  const before = `${originalAgents}\n<!-- foundocs:setup:start -->\n## Foundocs\n${'Detailed setup policy. '.repeat(300)}\n<!-- foundocs:setup:end -->${suffix}`;
+  await writeFile(agentsPath, before);
+  const protectedBefore = await snapshot(saved.protectedPaths);
+  await updateSkills(f.root, offlineOptions(f));
+  const after = await readFile(agentsPath, 'utf8');
+  assert.ok(after.startsWith(originalAgents));
+  assert.ok(after.endsWith(suffix));
+  assert.ok(after.length < before.length / 4);
+  assert.equal(after.split('<!-- foundocs:setup:start -->').length, 2);
+  assert.deepEqual(await snapshot(saved.protectedPaths), protectedBefore);
+  assert.deepEqual((await updateSkills(f.root, offlineOptions(f))).changedFiles, []);
+  assert.equal((await rollback(f.root, offlineOptions(f))).ok, true);
+  assert.equal(await readFile(agentsPath, 'utf8'), before);
 });
