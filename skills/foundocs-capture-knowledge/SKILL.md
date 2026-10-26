@@ -1,6 +1,6 @@
 ---
 name: foundocs-capture-knowledge
-description: Save durable project context explicitly provided by the user, lasting rules and preferences, confirmed decisions and verified reusable learnings in Foundocs knowledge. Trigger in the same turn even without a request to remember or save, including project purpose, identity, audience, technology, terminology, operating environment and constraints. Merge related items; exclude tentative ideas, transient status and secrets.
+description: Save durable project context explicitly provided by the user, lasting rules and preferences, confirmed decisions and verified reusable learnings, including lessons from correcting your own mistakes, in Foundocs knowledge. Trigger in the same turn even without a request to remember or save, including project purpose, identity, audience, technology, terminology, operating environment and constraints. Merge related items; exclude tentative ideas, transient status and secrets.
 ---
 
 # Capture Foundocs knowledge
@@ -8,6 +8,8 @@ description: Save durable project context explicitly provided by the user, lasti
 Keep information that will improve a later decision or avoid repeated investigation. Use the current task context; if there is no worthwhile candidate, stop without collection calls, writes or a collection report. Do not reload whole conversations or invoke additional models or subagents solely to collect knowledge.
 
 When the user explicitly provides durable information about their project, capture it in the same turn without waiting for a separate request to remember or save. Search narrowly for related knowledge, merge into the same topic or create an item, and confirm the write succeeded before ending the turn. An acknowledgment such as "Understood" or "I'll remember" is not a substitute for persistence. If blocked by configuration, access, an unresolved contradiction or a write failure, explain that the information has not been saved and what is needed.
+
+After correcting your own mistake, whether noticed independently or pointed out by the user, capture any verified, reusable lesson in the same turn without waiting for a save request. Record the mistaken assumption or action, the verified cause and corrected approach, and when the lesson applies; include only supported details that help avoid recurrence. Use `learnings` for the lesson, or `rules`/`decisions` when the correction establishes a lasting user rule or confirmed decision. Skip typo-only fixes, one-off cleanup and unverified fixes; a correction alone does not make a durable lesson.
 
 ## Select and scope
 
@@ -36,6 +38,8 @@ Discover the currently available Foundocs MCP tools and read their schemas and d
 On the first use of this project in a session, follow the [Foundocs session discovery index](../foundocs/SKILL.md#session-discovery-index) guidance: resolve the project, inspect the live schema, then call `get_project_context` with `project_id` and `view: "index"` once if supported. Reuse an index already read in this session. It mixes frequently retrieved, recently beneficial and recently updated items and is only a starting point. If the server lacks index mode, use the existing context call and continue searching. An entry missing from the index is not evidence that knowledge is absent; search beyond the index before deciding to create a new topic. Index exposure itself is not a retrieval to evaluate.
 
 Prefer `explore_docs` for path discovery, body search and focused reads. Use `search_docs` when searching titles, tags or TL;DR, or when its kind/category filters better fit the question. Search only related topics. Before an update, use `get_doc` to obtain the target's current content, metadata and version. Search excerpts are not a complete document. Merge into an existing topic; if the information is already represented without a meaningful change, skip the write.
+
+Knowledge has three fixed category roots: `knowledge/rules/`, `knowledge/learnings/` and `knowledge/decisions/`. Topical folders may nest arbitrarily below the matching root; a file directly under that root is also valid. Before choosing a new path, inspect related existing folders with `explore_docs` and reuse the closest suitable topic. Group closely related facts in the same item or folder; avoid tiny fragments, duplicate shallow folders and a new folder for every capture. Create a topic folder only when it improves retrieval. Ordinary capture need not reorganize unrelated knowledge; use [the writing guide](references/writing-guide.md) for an authorized path move, and the explicit Dreaming workflow for broader consolidation.
 
 When new information conflicts with existing knowledge, check whether the user explicitly corrected or superseded the earlier statement. If so, update it and record the correction's source without inventing a reason. Otherwise, ask a focused clarification before replacing the disputed claim; recency alone is not proof of correction. Do not silently override user-provided context with code evidence or the reverse; distinguish their sources and scopes. Continue saving unrelated, unambiguous knowledge and preserve unrelated content.
 

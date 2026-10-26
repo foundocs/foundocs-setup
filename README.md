@@ -103,7 +103,7 @@ Existing recorded installations can update the skill and managed instructions wi
 node /absolute/path/to/foundocs-setup/src/cli.mjs update-skills --root /absolute/project
 ```
 
-The equivalent command for this release is `npx --yes @foundocs/foundocs-setup@0.3.5 update-skills --root /absolute/project`. The local commands above run this checkout; a pinned npm command requires that registry release to exist.
+The equivalent command for this release is `npx --yes @foundocs/foundocs-setup@0.3.8 update-skills --root /absolute/project`. The local commands above run this checkout; a pinned npm command requires that registry release to exist.
 
 Updates preserve MCP settings, project configuration, authentication helpers and private keys, including installations that still use the historical configuration filename. The private `skills.json` records installed/pending asset hashes for interruption recovery. Foreign same-name files and local skill edits stop installation/update before project writes; move or reconcile the reported file explicitly, then retry. Unrelated skills and instructions are retained. `rollback` includes skill assets and preserves concurrent edits.
 
@@ -112,6 +112,14 @@ Updates preserve MCP settings, project configuration, authentication helpers and
 The package's `skills/` and `templates/` directories must be included in every tarball. Run package tests and a packed-CLI smoke check before publishing; keep production's exact version pinned to a registry-verified release.
 
 Dreaming adversarial fixtures and trace checks live in `eval/`; see `eval/README.md`. These checks do not claim real-model quality evaluation.
+
+## Knowledge folders (0.3.8)
+
+The bundled capture skill reuses existing topic folders beneath the fixed `knowledge/rules/`, `knowledge/learnings/` and `knowledge/decisions/` roots. Nested topic folders and files directly under a root are both valid. Related facts stay together rather than becoming fragments or duplicate shallow folders. Verified, reusable lessons from correcting the agent’s own mistakes are captured in the same turn; typo-only and unverified fixes are excluded.
+
+Dreaming inspects dispersed knowledge and similar folders within its existing six stages. Only a server-verified path-only update within the same category may be applied automatically: body, title, TL;DR, ordered tags, creation date and other metadata must stay unchanged. Semantic, category and mixed changes retain owner review. Older servers without explicit automatic-move support receive review candidates. Prior moves and proposal history guide deduplication so repeated runs avoid cosmetic renames.
+
+The skills explain stable IDs, previous-path aliases, relative-link bases, move receipts and versioned requests. Ordinary move undo uses the discovered `get_content_moves` / `undo_content_move` tools on explicit request; a Dreaming move returns to the exact saved proposal’s owner review for `revert`. New server tools are discovered dynamically. This release updates guidance, not an older server’s capabilities, and existing installed skills still require the consent-based update flow.
 
 ## Session discovery
 

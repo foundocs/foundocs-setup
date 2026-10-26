@@ -1,13 +1,23 @@
 import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 
-const writes = new Set(['create_doc', 'update_doc', 'delete_doc', 'set_knowledge_status']);
+const writes = new Set(['create_doc', 'update_doc', 'delete_doc', 'set_knowledge_status', 'undo_content_move']);
 const stages = [3, 4, 5, 6, 7, 8];
 const stable = value => JSON.stringify(value, (_, v) => v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.keys(v).sort().map(key => [key, v[key]])) : v);
 const unwrap = result => {
   const payload = result?.structuredContent ?? result;
   return payload?.ok === true ? payload.data : payload;
 };
+
+function pathOnlyKnowledgeMove(source, after) {
+  const fields = ['kind', 'category', 'title', 'bodyMarkdown', 'tldr', 'tags', 'created'];
+  if (!source || !after || source.kind !== 'knowledge' || !['rules', 'learnings', 'decisions'].includes(source.category)) return false;
+  if (Object.keys(after).some(key => ![...fields, 'path', 'reason'].includes(key))) return false;
+  if (!fields.every(key => source[key] !== undefined && stable(source[key]) === stable(after[key]))) return false;
+  if (typeof source.path !== 'string' || typeof after.path !== 'string' || source.path === after.path) return false;
+  if (!after.path.startsWith(`knowledge/${source.category}/`) || !after.path.endsWith('.md') || /[\\\u0000-\u001f\u007f]/u.test(after.path)) return false;
+  return after.path.split('/').every(part => part && part !== '.' && part !== '..') && !['INDEX.md', '.md'].includes(after.path.split('/').at(-1));
+}
 
 // Deterministic protocol checks over captured tool calls. Semantic rubrics still
 // require an independent reviewer and actual Codex/Claude execution.
@@ -34,9 +44,9 @@ export function evaluateTrace(fixture, trace) {
     check((fixture.availableTools ?? []).includes(step.tool), `${prefix}Tool was unavailable.`);
     if (!rejected && step.tool === 'get_doc' && typeof result?.bodyMarkdown === 'string') {
       inspectedSources.set(result.id, result.versionToken);
-      // Relation application can advance content versions without rewriting the
-      // source. A real reread supersedes the seed version for later submissions.
-      if (targets.has(result.id)) targets.set(result.id, { ...targets.get(result.id), versionToken: result.versionToken });
+      // Relations and moves advance versions. A complete reread also refreshes
+      // path/metadata; a partial body must not replace the full fixture snapshot.
+      if (targets.has(result.id)) targets.set(result.id, { ...targets.get(result.id), ...(!result.nextOffset && !result.offset ? result : { versionToken: result.versionToken }) });
     }
     if (!rejected && step.tool === 'explore_docs' && /^(cat|sed|head|tail)\b/.test(args.command ?? '')) for (const source of result?.sources ?? []) inspectedSources.set(source.id, source.versionToken);
     if (!rejected && result?.run) for (const target of result.run.targets ?? []) frozenTargets.set(target.contentId, target.versionToken);
@@ -77,8 +87,12 @@ export function evaluateTrace(fixture, trace) {
           check(!(constraints.forbiddenMutations ?? []).includes(mutation.type), `${prefix}Fixture forbids ${mutation.type}.`);
           if (candidate.requestedDisposition === 'observation') check(false, `${prefix}Observation contains a mutation.`);
           if (candidate.requestedDisposition === 'auto_candidate') {
-            check(mutation.type === 'relation' && ['duplicate_of', 'related_to'].includes(mutation.relation), `${prefix}Meaningful mutation requested automatic application.`);
-            if (constraints.allowedAutoRelations) check(constraints.allowedAutoRelations.includes(mutation.relation), `${prefix}Automatic relation is not supported by this fixture.`);
+            const relation = mutation.type === 'relation' && ['duplicate_of', 'related_to'].includes(mutation.relation);
+            const move = mutation.type === 'update' && fixture.capabilities?.autoPathOnlyKnowledgeMoves === true
+              && pathOnlyKnowledgeMove(targets.get(mutation.contentId), mutation.after);
+            check(relation || move, `${prefix}Meaningful mutation requested automatic application.`);
+            if (mutation.type === 'update') check(fixture.capabilities?.autoPathOnlyKnowledgeMoves === true, `${prefix}Automatic path moves are not supported by this server fixture.`);
+            if (relation && constraints.allowedAutoRelations) check(constraints.allowedAutoRelations.includes(mutation.relation), `${prefix}Automatic relation is not supported by this fixture.`);
           }
           for (const id of [mutation.contentId, mutation.fromId, mutation.toId].filter(Boolean)) {
             check(targets.has(id), `${prefix}Mutation is outside project knowledge.`);

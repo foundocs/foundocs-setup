@@ -1,9 +1,9 @@
 {
   "name": "@foundocs/foundocs-setup",
-  "version": "0.3.7",
+  "version": "0.3.8",
   "description": "Repeatable project setup and agent skills for the Foundocs remote MCP server",
   "foundocsRelease": {
-    "summary": "Keep AGENTS.md compact with trigger-only guidance and on-demand skill references; add session discovery indexes with focused search and older-server fallback."
+    "summary": "Organize knowledge in reusable topic folders; allow only server-verified same-category path-only Dreaming moves, preserve move history and owner-reviewed undo, and capture verified lessons from corrected mistakes."
   },
   "type": "module",
   "bin": {
