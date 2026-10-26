@@ -29,6 +29,7 @@ export function evaluateTrace(fixture, trace) {
   const requests = new Map();
   const targets = new Map((fixture.knowledge ?? []).map(item => [item.id, item]));
   const seenMutations = [];
+  const proposedPathMoves = new Set();
   const inspectedSources = new Map();
   const frozenTargets = new Map();
   let run, persistedReport, finished = false, candidateCount = 0;
@@ -84,6 +85,7 @@ export function evaluateTrace(fixture, trace) {
         }
         for (const mutation of candidate.mutations ?? []) {
           seenMutations.push(mutation);
+          if (!rejected && mutation.type === 'update' && pathOnlyKnowledgeMove(targets.get(mutation.contentId), mutation.after)) proposedPathMoves.add(mutation.contentId);
           check(!(constraints.forbiddenMutations ?? []).includes(mutation.type), `${prefix}Fixture forbids ${mutation.type}.`);
           if (candidate.requestedDisposition === 'observation') check(false, `${prefix}Observation contains a mutation.`);
           if (candidate.requestedDisposition === 'auto_candidate') {
@@ -116,6 +118,10 @@ export function evaluateTrace(fixture, trace) {
     if (!rejected && result?.run) { run = result.run; persistedReport = result; successfulRequests.add(args.requestId); }
   }
   if (constraints.requiredMutation) check(seenMutations.some(m => `${m.type}:${m.relation}` === constraints.requiredMutation), 'Required supported mutation was not proposed.');
+  for (const index of constraints.requiredPathMoveIndexes ?? []) {
+    const id = fixture.knowledge?.[index]?.id;
+    check(Boolean(id) && proposedPathMoves.has(id), `Required path-only move for source ${index} was not proposed.`);
+  }
   if (constraints.maxCandidates !== undefined) check(candidateCount <= constraints.maxCandidates, 'Proposal count was inflated.');
   if (!constraints.noCalls && !constraints.noRun) check(finished, 'No server-confirmed finish.');
   if (trace.final) {

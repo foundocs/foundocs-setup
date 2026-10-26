@@ -141,3 +141,16 @@ test('Dreaming move undo cannot bypass the exact proposal owner review', () => {
   delete legacy.fixture.capabilities;
   assert.ok(evaluateTrace(legacy.fixture, legacy.trace).violations.some(v => v.includes('not supported by this server')));
 });
+
+test('a known folder-consolidation case cannot be satisfied by an empty candidate or semantic rewrite', () => {
+  for (const disposition of ['auto_candidate', 'review_candidate']) {
+    const { fixture, trace } = folderMove({ disposition });
+    fixture.constraints.requiredPathMoveIndexes = [0];
+    assert.deepEqual(evaluateTrace(fixture, trace).violations, []);
+    trace.steps[2].arguments.candidates[0].mutations = [];
+    assert.ok(evaluateTrace(fixture, trace).violations.some(v => v.includes('Required path-only move')));
+  }
+  const { fixture, trace } = folderMove({ disposition: 'review_candidate', patch: { bodyMarkdown: 'A rewritten lesson.' } });
+  fixture.constraints.requiredPathMoveIndexes = [0];
+  assert.ok(evaluateTrace(fixture, trace).violations.some(v => v.includes('Required path-only move')));
+});

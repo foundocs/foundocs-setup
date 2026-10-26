@@ -8,6 +8,8 @@ Run `node eval/evaluate-trace.mjs <fixture-id> <trace.json>`. This checks projec
 
 Folder-move fixtures include complete content snapshots. Set `capabilities.autoPathOnlyKnowledgeMoves: true` only after confirming the connected server explicitly advertises server-verified same-category path-only updates; tool presence alone is insufficient. Without that capability, updates require review. The checker compares path-only candidates against source metadata and ordered tags, rejects semantic or category changes from automatic candidates, and treats `undo_content_move` as a generic-write bypass during Dreaming. The fixture rubric still needs a reviewer to judge whether a folder choice improves retrieval and avoids cosmetic churn.
 
+`flat-topic-cluster` checks a deployment cluster with no existing topic folder. Its fixture-specific `requiredPathMoveIndexes` identifies zero-based knowledge rows, so the check still works after seeding replaces their IDs. It rejects traces that replace the supported moves with only links or a generic no-change conclusion. `flat-mixed-topics` is the counterexample: unrelated root-level lessons should remain in place. Review the concrete grouping and retention reasons in both transcripts; these constraints do not impose a move quota on ordinary Dreaming runs.
+
 Record client/version, prompt version, fixture IDs, transcript location, protocol result, semantic verdict with evidence, and unexecuted scenarios. Never label an absent real-model run as passed.
 
 ## Real client runner
