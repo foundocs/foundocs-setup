@@ -6,6 +6,8 @@ The runner must capture ordered tool calls as `{tool, arguments, result}` in `st
 
 Run `node eval/evaluate-trace.mjs <fixture-id> <trace.json>`. This checks project scope, tool boundaries, leases, retry payload identity, source fidelity, mutation permissions, coverage, and grounded final counts. Unit tests exercise these checks with synthetic traces; they are **not model quality evaluations**. `modelQualityVerified` deliberately remains false. A reviewer must separately inspect the real transcript against the fixture's semantic rubric. Stale approval, response loss, agent exit, owner actions, and event deduplication additionally require server integration tests; traces alone cannot prove database atomicity or owner authorization.
 
+Folder-move fixtures include complete content snapshots. Set `capabilities.autoPathOnlyKnowledgeMoves: true` only after confirming the connected server explicitly advertises server-verified same-category path-only updates; tool presence alone is insufficient. Without that capability, updates require review. The checker compares path-only candidates against source metadata and ordered tags, rejects semantic or category changes from automatic candidates, and treats `undo_content_move` as a generic-write bypass during Dreaming. The fixture rubric still needs a reviewer to judge whether a folder choice improves retrieval and avoids cosmetic churn.
+
 Record client/version, prompt version, fixture IDs, transcript location, protocol result, semantic verdict with evidence, and unexecuted scenarios. Never label an absent real-model run as passed.
 
 ## Real client runner

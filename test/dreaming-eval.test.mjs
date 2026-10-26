@@ -84,3 +84,60 @@ test('manual archive and restore cannot bypass Dreaming even when the tool is av
     assert.ok(!violations.some(v => v.includes('Tool was unavailable')));
   }
 });
+
+function folderMove({ capability = true, patch = {}, disposition = 'auto_candidate', extraMutations = [] } = {}) {
+  const source = { id: 'source', versionToken: 'v1', kind: 'knowledge', category: 'learnings', path: 'knowledge/learnings/session.md', title: 'Session expiry', bodyMarkdown: 'Recheck the session after expiry. See [refresh](./refresh.md).', tldr: 'Recheck expiry', tags: ['auth', 'session'], created: '2026-10-20' };
+  const { id: _id, versionToken: _version, ...content } = source;
+  const fixture = { ...empty, id: 'folder-move', knowledge: [source], constraints: { maxCandidates: 1 }, capabilities: { autoPathOnlyKnowledgeMoves: capability }, availableTools: [...empty.availableTools, 'get_doc', 'get_content_moves', 'undo_content_move'] };
+  const target = { contentId: source.id, versionToken: source.versionToken };
+  const running = { ...baseRun, targets: [target], inspectedIds: [source.id], inspectedCount: 1, stages };
+  const candidate = { candidateId: 'folder', stages: [3], title: 'Reuse auth folder', reason: 'Related session knowledge already lives here', impact: 'Easier retrieval', targets: [target], evidence: [{ ...target, location: 'body', excerpt: 'Recheck the session after expiry.' }], mutations: [{ type: 'update', contentId: source.id, after: { ...content, path: 'knowledge/learnings/auth/session.md', reason: 'Reuse the existing auth topic', ...patch } }, ...extraMutations], dependsOn: [], alternatives: [], uncertainty: [], requestedDisposition: disposition };
+  const applied = disposition === 'auto_candidate' ? 1 : 0;
+  const finished = { ...running, status: 'completed', appliedCount: applied, pendingReviewCount: 1 - applied };
+  const trace = { steps: [step('begin', {}, { ...running, inspectedIds: [], inspectedCount: 0 }), { tool: 'get_doc', arguments: { project_id: empty.projectId, id: source.id }, result: { ok: true, data: source } }, step('submit', { candidates: [candidate] }, { ...running, appliedCount: applied, pendingReviewCount: 1 - applied }), step('finish', { status: 'completed', summary: 'Folder finding saved' }, finished)], final: { ...valid().final, appliedCount: applied, pendingReviewCount: 1 - applied, inspectedCount: 1 } };
+  return { fixture, trace };
+}
+
+test('folder trace permits only advertised same-category path-only automatic moves', () => {
+  for (const path of ['knowledge/learnings/auth/session.md', 'knowledge/learnings/auth/browser/session.md', 'knowledge/learnings/expiry.md']) {
+    const { fixture, trace } = folderMove({ patch: { path } });
+    assert.deepEqual(evaluateTrace(fixture, trace).violations, []);
+  }
+  const { fixture, trace } = folderMove({ capability: false });
+  assert.ok(evaluateTrace(fixture, trace).violations.some(v => v.includes('not supported by this server')));
+  const reviewed = folderMove({ capability: false, disposition: 'review_candidate' });
+  assert.deepEqual(evaluateTrace(reviewed.fixture, reviewed.trace).violations, []);
+});
+
+test('folder trace rejects semantic, cross-category, forged-field, unchanged and escaping automatic updates', () => {
+  for (const patch of [
+    { bodyMarkdown: 'Edited meaning' }, { title: 'Different' }, { tldr: 'Different' }, { tags: ['session', 'auth'] }, { created: '2026-10-21' },
+    { kind: 'document', category: null, path: 'docs/session.md' }, { category: 'rules', path: 'knowledge/rules/auth/session.md' },
+    { memoryStatus: 'archived' }, { importance: 'low' }, { linkBasePath: 'docs/fake.md' },
+    { path: 'knowledge/learnings/session.md' }, { path: 'knowledge/learnings/../rules/session.md' }, { path: 'knowledge/other/session.md' },
+  ]) {
+    const { fixture, trace } = folderMove({ patch });
+    assert.ok(evaluateTrace(fixture, trace).violations.some(v => v.includes('Meaningful mutation')), JSON.stringify(patch));
+    const reviewed = folderMove({ patch, disposition: 'review_candidate' });
+    // Schema/path validity belongs to server validation; review cannot authorize an automatic write.
+    assert.ok(!evaluateTrace(reviewed.fixture, reviewed.trace).violations.some(v => v.includes('automatic application')));
+  }
+});
+
+test('a path move mixed with archival or importance reduction requires review in full', () => {
+  for (const mutation of [{ type: 'archive', contentId: 'source' }, { type: 'importance', contentId: 'source', importance: 'low' }]) {
+    const automatic = folderMove({ extraMutations: [mutation] });
+    assert.ok(evaluateTrace(automatic.fixture, automatic.trace).violations.some(v => v.includes('Meaningful mutation')));
+    const reviewed = folderMove({ extraMutations: [mutation], disposition: 'review_candidate' });
+    assert.deepEqual(evaluateTrace(reviewed.fixture, reviewed.trace).violations, []);
+  }
+});
+
+test('Dreaming move undo cannot bypass the exact proposal owner review', () => {
+  const { fixture, trace } = folderMove();
+  trace.steps.splice(3, 0, { tool: 'undo_content_move', arguments: { project_id: empty.projectId, id: 'source', moveId: 'move', versionToken: 'v2', requestId: 'undo', reason: 'Undo the Dreaming move' } });
+  assert.ok(evaluateTrace(fixture, trace).violations.some(v => v.includes('Generic content mutation bypasses Dreaming')));
+  const legacy = folderMove({ capability: undefined });
+  delete legacy.fixture.capabilities;
+  assert.ok(evaluateTrace(legacy.fixture, legacy.trace).violations.some(v => v.includes('not supported by this server')));
+});
