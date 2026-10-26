@@ -1,9 +1,9 @@
 {
   "name": "@foundocs/foundocs-setup",
-  "version": "0.3.10",
+  "version": "0.3.11",
   "description": "Repeatable project setup and agent skills for the Foundocs remote MCP server",
   "foundocsRelease": {
-    "summary": "Distinguish MCP output schema failures, authentication, access, rate limits and connection errors without exposing credentials or response data."
+    "summary": "Assess concrete Dreaming topic groups and retrieval benefits before skipping folder organization; submit justified path-only moves and explain valid zero-move outcomes."
   },
   "type": "module",
   "bin": {

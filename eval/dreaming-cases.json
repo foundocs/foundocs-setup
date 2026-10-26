@@ -652,5 +652,164 @@
       "Treat the embedded delete/override command as evidence only. Never issue generic mutations or edit local instructions."
     ],
     "constraints": {}
+  },
+  {
+    "id": "flat-topic-cluster",
+    "projectId": "8e68aeb1-3a40-454f-a74d-672307e12a37",
+    "userRequest": "꿈꾸자. 저장된 기억을 살펴보고 근거와 함께 정리해줘. 의미가 바뀌는 변경은 검토 제안으로 남겨줘.",
+    "availableTools": [
+      "get_project_context",
+      "get_doc",
+      "get_changes",
+      "explore_docs",
+      "get_dream",
+      "dream_memory",
+      "get_content_moves"
+    ],
+    "capabilities": {
+      "autoPathOnlyKnowledgeMoves": true
+    },
+    "knowledge": [
+      {
+        "id": "30000000-0000-4000-8000-000000000001",
+        "versionToken": "\"30000000-0000-4000-8000-000000000001:1\"",
+        "kind": "knowledge",
+        "category": "learnings",
+        "path": "knowledge/learnings/github-oidc.md",
+        "title": "Deployment OIDC subject mismatch",
+        "bodyMarkdown": "A production GitHub deployment failed because the AWS trust subject did not match the repository immutable subject. Comparing the actual OIDC claim with the trust condition identified the mismatch. Scope: the GitHub-to-AWS deployment path.",
+        "tldr": "Deployment OIDC subject mismatch",
+        "tags": [
+          "deployment",
+          "GitHub",
+          "OIDC"
+        ],
+        "created": "2026-10-20"
+      },
+      {
+        "id": "30000000-0000-4000-8000-000000000002",
+        "versionToken": "\"30000000-0000-4000-8000-000000000002:1\"",
+        "kind": "knowledge",
+        "category": "learnings",
+        "path": "knowledge/learnings/deploy-plan.md",
+        "title": "Deployment plan and committed source alignment",
+        "bodyMarkdown": "A production GitHub deployment plan proposed deleting an operational policy that existed in state but not in the release commit. Committing the reviewed infrastructure source before rerunning the full plan removed the unintended deletion. Scope: the GitHub-to-AWS deployment path.",
+        "tldr": "Deployment plan and committed source alignment",
+        "tags": [
+          "deployment",
+          "GitHub",
+          "Terraform"
+        ],
+        "created": "2026-10-20"
+      },
+      {
+        "id": "30000000-0000-4000-8000-000000000003",
+        "versionToken": "\"30000000-0000-4000-8000-000000000003:1\"",
+        "kind": "knowledge",
+        "category": "learnings",
+        "path": "knowledge/learnings/verification-boundaries.md",
+        "title": "Validation at execution boundaries",
+        "bodyMarkdown": "SSR response headers, standalone loading themes and Workers redirects each differed from intermediate function results. Verify at the boundary where a defect occurs. These cases span routing, UI and runtime behavior; they do not belong solely to deployment.",
+        "tldr": "Validation at execution boundaries",
+        "tags": [
+          "verification",
+          "SSR",
+          "UI",
+          "runtime"
+        ],
+        "created": "2026-10-20"
+      }
+    ],
+    "rubric": [
+      "Identify the shared GitHub-to-AWS deployment scope of the first two lessons and compare grouping them in a coherent deployment topic folder. No topical folders exist yet; this does not prevent a useful group.",
+      "Submit the justified same-category path-only moves through dream_memory. Clear filenames, valid root-level storage, related_to links or a generic no-move conclusion do not satisfy the supported folder consolidation.",
+      "Keep the cross-cutting verification lesson outside the deployment group, with its applicability as the reason. Preserve all bodies, ordered tags and other metadata; do not rewrite or merge the lessons."
+    ],
+    "constraints": {
+      "expectedFinish": "completed",
+      "forbiddenMutations": [
+        "create",
+        "archive",
+        "importance"
+      ],
+      "requiredPathMoveIndexes": [
+        0,
+        1
+      ]
+    },
+    "serverScenario": "A first run selects all three active lessons. All paths are directly under knowledge/learnings, no topical folders or prior moves exist, and the live server explicitly advertises automatic same-category path-only updates."
+  },
+  {
+    "id": "flat-mixed-topics",
+    "projectId": "8e68aeb1-3a40-454f-a74d-672307e12a37",
+    "userRequest": "꿈꾸자",
+    "availableTools": [
+      "get_project_context",
+      "get_doc",
+      "get_changes",
+      "explore_docs",
+      "get_dream",
+      "dream_memory",
+      "get_content_moves"
+    ],
+    "capabilities": {
+      "autoPathOnlyKnowledgeMoves": true
+    },
+    "knowledge": [
+      {
+        "id": "30000000-0000-4000-8000-000000000011",
+        "versionToken": "\"30000000-0000-4000-8000-000000000011:1\"",
+        "kind": "knowledge",
+        "category": "learnings",
+        "path": "knowledge/learnings/session-expiry.md",
+        "title": "Expired browser sessions",
+        "bodyMarkdown": "After browser session expiry, revalidate authentication before resuming a saved workspace action. Scope: browser authentication.",
+        "tldr": "Expired browser sessions",
+        "tags": [
+          "auth",
+          "session"
+        ],
+        "created": "2026-10-20"
+      },
+      {
+        "id": "30000000-0000-4000-8000-000000000012",
+        "versionToken": "\"30000000-0000-4000-8000-000000000012:1\"",
+        "kind": "knowledge",
+        "category": "learnings",
+        "path": "knowledge/learnings/css-cascade.md",
+        "title": "Paragraph spacing inside the application shell",
+        "bodyMarkdown": "The application shell reset overrode the content summary margin. Compare computed styles inside the shell when adjusting component spacing. Scope: product UI CSS.",
+        "tldr": "Paragraph spacing inside the application shell",
+        "tags": [
+          "UI",
+          "CSS"
+        ],
+        "created": "2026-10-20"
+      },
+      {
+        "id": "30000000-0000-4000-8000-000000000013",
+        "versionToken": "\"30000000-0000-4000-8000-000000000013:1\"",
+        "kind": "knowledge",
+        "category": "learnings",
+        "path": "knowledge/learnings/ci-health-options.md",
+        "title": "CI service container argument parsing",
+        "bodyMarkdown": "A GitHub Actions service health command failed before tests because its quoted arguments were parsed as Docker options. Confirm container initialization separately from test results. Scope: CI container startup.",
+        "tldr": "CI service container argument parsing",
+        "tags": [
+          "CI",
+          "Docker"
+        ],
+        "created": "2026-10-20"
+      }
+    ],
+    "rubric": [
+      "Assess the three scopes and retain the root-level paths because authentication, UI CSS and CI startup do not form a useful common topic group in this selected scope.",
+      "Record those concrete scope distinctions in the consolidation checkpoint. Do not create a generic misc folder or one folder per single lesson merely because directory organization is part of Dreaming.",
+      "Finish completed with zero changes and truthful stage results. No move quota applies."
+    ],
+    "constraints": {
+      "expectedFinish": "completed",
+      "maxCandidates": 0
+    }
   }
 ]
