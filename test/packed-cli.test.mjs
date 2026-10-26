@@ -58,7 +58,7 @@ test('AC-26/28/29/30/31/33/38/42/43/44/45/46/48/49/50/51/52: packed CLI installs
   const base = await realpath(await mkdtemp(join(tmpdir(), 'foundocs-packed-cli-')));
   t.after(() => rm(base, { recursive: true, force: true }));
   const packed = JSON.parse((await exec('npm', ['pack', '--json', '--pack-destination', base], { cwd: packageRoot, env: { ...process.env, npm_config_cache: join(base, 'npm-cache') }, maxBuffer: 1024 * 1024 })).stdout)[0];
-  for (const name of ['src/cli.mjs', 'src/runtime.mjs', 'src/skill-assets.mjs', 'skills/foundocs-capture-knowledge/SKILL.md', 'skills/foundocs-capture-knowledge/references/writing-guide.md', 'skills/foundocs/scripts/check-update.mjs', 'skills/foundocs/references/updates.md', 'skills/foundocs/references/configuration.md', 'skills/foundocs/references/documents.md', 'templates/knowledge-policy.md']) {
+  for (const name of ['src/cli.mjs', 'src/runtime.mjs', 'src/skill-assets.mjs', 'skills/foundocs-capture-knowledge/SKILL.md', 'skills/foundocs-capture-knowledge/references/writing-guide.md', 'skills/foundocs/scripts/check-update.mjs', 'skills/foundocs/scripts/session-start.mjs', 'skills/foundocs/references/updates.md', 'skills/foundocs/references/configuration.md', 'skills/foundocs/references/documents.md', 'templates/knowledge-policy.md']) {
     assert.ok(packed.files.some(file => file.path === name), `tarball is missing ${name}`);
   }
   await exec('tar', ['-xzf', join(base, packed.filename), '-C', base]);
@@ -125,7 +125,7 @@ globalThis.fetch = async (url, options) => {
     const assetNames = ['SKILL.md', 'references/writing-guide.md'];
     for (const name of assetNames) assert.equal(await readFile(join(skillRoot, name), 'utf8'), await readFile(join(extracted, 'skills/foundocs-capture-knowledge', name), 'utf8'));
     const foundocsRoot = join(root, client === 'codex' ? '.agents' : '.claude', 'skills/foundocs');
-    const foundocsAssets = ['SKILL.md', 'references/configuration.md', 'references/documents.md', 'references/dreaming.md', 'references/updates.md', 'scripts/check-update.mjs'];
+    const foundocsAssets = ['SKILL.md', 'references/configuration.md', 'references/documents.md', 'references/dreaming.md', 'references/updates.md', 'scripts/check-update.mjs', 'scripts/session-start.mjs'];
     for (const name of foundocsAssets) assert.equal(await readFile(join(foundocsRoot, name), 'utf8'), await readFile(join(extracted, 'skills/foundocs', name), 'utf8'));
     const packageVersion = JSON.parse(await readFile(join(extracted, 'package.json'), 'utf8')).version;
     assert.equal(JSON.parse(await readFile(join(foundocsRoot, 'release.json'), 'utf8')).version, packageVersion);

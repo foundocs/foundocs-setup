@@ -103,11 +103,11 @@ Existing recorded installations can update the skill and managed instructions wi
 node /absolute/path/to/foundocs-setup/src/cli.mjs update-skills --root /absolute/project
 ```
 
-The equivalent command for this release is `npx --yes @foundocs/foundocs-setup@0.3.8 update-skills --root /absolute/project`. The local commands above run this checkout; a pinned npm command requires that registry release to exist.
+The equivalent command for this release is `npx --yes @foundocs/foundocs-setup@latest update-skills --root /absolute/project`. The local commands above run this checkout; a pinned npm command requires that registry release to exist.
 
 Updates preserve MCP settings, project configuration, authentication helpers and private keys, including installations that still use the historical configuration filename. The private `skills.json` records installed/pending asset hashes for interruption recovery. Foreign same-name files and local skill edits stop installation/update before project writes; move or reconcile the reported file explicitly, then retry. Unrelated skills and instructions are retained. `rollback` includes skill assets and preserves concurrent edits.
 
-`doctor` reports missing, outdated or conflicting skill files separately from MCP diagnostics and points to `update-skills`. A successful `skills.status: installed` verifies files only; the selected host must still discover the skill after reconnection/restart when needed. Neither setup nor doctor claims that a model executed the skill or will always follow it. No skill hooks or background collection are installed.
+`doctor` reports missing, outdated or conflicting skill files separately from MCP diagnostics and points to `update-skills`. A successful `skills.status: installed` verifies files only; the selected host must still discover the skill after reconnection/restart when needed. Neither setup nor doctor claims that a model executed the skill or will always follow it. A SessionStart skill-update hook is installed; no background knowledge collection is installed.
 
 The package's `skills/` and `templates/` directories must be included in every tarball. Run package tests and a packed-CLI smoke check before publishing; keep production's exact version pinned to a registry-verified release.
 
@@ -125,15 +125,23 @@ The skills explain stable IDs, previous-path aliases, relative-link bases, move 
 
 The Foundocs skill reached through the managed bootstrap guides the agent to resolve the configured project and read `get_project_context({ project_id, view: "index" })` once on the first use of each project in a session. The compact index combines frequently retrieved, recently beneficial and recently updated documents and knowledge. It is a discovery shortcut: if an entry is absent or insufficient, the agent continues with metadata, path and body searches across active content. Index exposure does not add retrieval records.
 
-Older servers without index mode remain usable through the existing context call and search tools. This does not install a host session-start hook or change the consent-based update policy. The same instructions ship in new installations and `update-skills`.
+Older servers without index mode remain usable through the existing context call and search tools. Index retrieval remains agent guidance; the separate SessionStart hook updates skill files only. The same instructions ship in new installations and `update-skills`.
 
-## Update offers
+## Automatic skill updates
 
-The compact managed AGENTS block routes Foundocs work to the Foundocs skill, which guides the agent to run the bundled `foundocs/scripts/check-update.mjs` once on the first Foundocs use in a session. This is guidance, not an installed host session-start hook. The Node script only queries public npm metadata: it does not download or execute another package, send project identifiers or credentials, or change project files.
+Setup and `update-skills` install a `SessionStart` command hook in `.codex/hooks.json` (Codex) or `.claude/settings.json` (Claude Code), preserving unrelated hooks and settings. On startup, resume, clear or fork, it checks public npm metadata and automatically installs a newer stable release using its exact version. Each event performs a fresh lookup, rather than reusing the manual checker's 24-hour cache. Only Foundocs skills, managed instructions and this hook are updated; MCP runtime pins, connection settings and keys stay unchanged.
 
-Each project has a private cache under `~/.local/share/foundocs/setup/update-checks` (or the same subdirectory of `FOUNDOCS_SETUP_HOME`). Checks and repeated offers are limited to once per 24 hours. A newer stable release includes its published summary when available; missing summaries are reported as unavailable. Network, runtime and cache failures quietly leave ordinary work usable.
+Existing installations enable this once, without a new connection code:
 
-The agent asks before updating, pins the command to the exact offered version and confirms the existing installer's result. Choosing later defers that version for seven days; a different newer release can be offered after the check cache expires. Existing ownership checks continue to protect edited skills, and updates preserve connection settings and keys. Installations predating the checker need one manual `update-skills` to acquire it. The installer writes `foundocs/release.json` with the installed package version and manages the checker and guide through the same update/rollback lifecycle.
+```sh
+npx --yes @foundocs/foundocs-setup@latest update-skills --root /absolute/project
+```
+
+The same command is the manual update command. Host trust still applies: review and trust new hooks with Codex `/hooks`, and accept the project settings/hook review in Claude Code. Disabled or untrusted hooks do not run. Never bypass the host's trust policy. Restart/reload the host if needed; installation does not prove host execution. Claude's hook requests a skill re-scan after a successful update; already loaded Codex instructions may require a reload.
+
+The registry request has a five-second timeout and package execution a 45-second timeout. Failures remain non-blocking and do not print credentials or raw child output. Setup locks, asset hashes and hook ownership prevent concurrent writes and overwrites of local edits; a newer installed release is never downgraded by `update-skills`. Resolve a reported conflict manually, then rerun the command. Remove or disable the Foundocs SessionStart handler in the host to opt out; setup will preserve a modified/removed managed hook as a conflict rather than silently restoring it.
+
+The bundled `check-update.mjs` remains a read-only manual version checker, with its 24-hour cache and deferral support for older clients. It does not itself install packages. The automatic hook intentionally ignores those old offer/deferral decisions. Private check state lives under `~/.local/share/foundocs/setup/update-checks` or the corresponding `FOUNDOCS_SETUP_HOME` directory. The installer manages both scripts, `foundocs/release.json` and the hook through its update/rollback lifecycle.
 
 ## Source and releases
 

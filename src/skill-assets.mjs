@@ -18,7 +18,7 @@ export function skillAssets(client) {
   const prefix = skillDirectory(client).slice(0, -SKILL_NAME.length);
   return [
     ...SKILL_FILES.map(name => ({ name: `${SKILL_NAME}/${name}` })),
-    ...['SKILL.md', 'references/configuration.md', 'references/documents.md', 'references/dreaming.md', 'references/updates.md', 'scripts/check-update.mjs'].map(name => ({ name: `foundocs/${name}` })),
+    ...['SKILL.md', 'references/configuration.md', 'references/documents.md', 'references/dreaming.md', 'references/updates.md', 'scripts/check-update.mjs', 'scripts/session-start.mjs'].map(name => ({ name: `foundocs/${name}` })),
   ].map(({ name }) => ({
     name: `${prefix}${name}`,
     content: readFileSync(new URL(`../skills/${name}`, import.meta.url), 'utf8'),

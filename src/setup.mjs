@@ -11,6 +11,7 @@ import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/cli
 import { readCredential, windowsPrivateAcl } from './auth.mjs';
 import { legacy, legacyInstructions } from './legacy-compat.mjs';
 import { knowledgePolicy, skillAssets } from './skill-assets.mjs';
+import { newer } from '../skills/foundocs/scripts/check-update.mjs';
 
 const exec = promisify(execFile);
 const PACKAGE_VERSION = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).version;
@@ -57,6 +58,14 @@ export function helperCommand(args, platform = process.platform) {
   // ASCII base64 unchanged; PowerShell safely invokes the actual absolute paths.
   const command = `& ${args.map((arg) => `'${arg.replaceAll("'", "''")}'`).join(' ')}; exit $LASTEXITCODE`;
   return `powershell.exe -NoProfile -NonInteractive -EncodedCommand ${Buffer.from(command, 'utf16le').toString('base64')}`;
+}
+
+// Shared hooks must remain byte-identical in another clone. Resolve the nearest
+// configured project at execution time, stop at Git boundaries, and guard its ID.
+export function sessionHookCommand(client, projectId) {
+  const prefix = client === 'codex' ? '.agents' : '.claude';
+  const code = `const fs=require('node:fs'),p=require('node:path'),{spawnSync}=require('node:child_process');try{let r=fs.realpathSync(process.cwd());for(;;){const a=p.join(r,'foundocs.json'),b=p.join(r,'steerdocs.json');if(fs.existsSync(a)||fs.existsSync(b)){const c=JSON.parse(fs.readFileSync(fs.existsSync(a)?a:b,'utf8'));if(c.project_id!==${JSON.stringify(projectId)})break;spawnSync(process.execPath,[p.join(r,${JSON.stringify(prefix)},'skills/foundocs/scripts/session-start.mjs'),'--root',r],{cwd:r,stdio:['ignore','inherit','ignore'],timeout:55000});break;}if(fs.existsSync(p.join(r,'.git'))||p.dirname(r)===r)break;r=p.dirname(r);}}catch{}`;
+  return helperCommand(['node', '-e', code]);
 }
 
 export function instructions(client) {
@@ -491,7 +500,7 @@ async function writableParent(path) {
 
 // Asset ownership is private installation metadata, not a marker users must put
 // in their skill. Pending hashes allow an interrupted update to resume safely.
-async function skillPlan(root, client, directory) {
+async function skillPlan(root, client, directory, projectId) {
   const statePath = join(directory, 'skills.json');
   const stateText = await textFile(statePath);
   const state = stateText === null ? { version: 1, root, files: {} } : parseJson(stateText, statePath);
@@ -510,6 +519,35 @@ async function skillPlan(root, client, directory) {
     complete.files[asset.name] = { installedHash: afterHash };
     entries.push({ path, before, after: asset.content, mode: before === null ? 0o644 : (await lstat(path)).mode & 0o777 });
   }
+  const hookFile = client === 'codex' ? '.codex/hooks.json' : '.claude/settings.json';
+  const path = join(root, hookFile);
+  await safeParent(root, path);
+  await writableParent(path);
+  const before = await textFile(path);
+  const config = before === null ? {} : parseJson(before, path);
+  if (config.hooks !== undefined && !plainObject(config.hooks)) fail('preflight', 'Hooks must be an object.', { path });
+  config.hooks ??= {};
+  const groups = config.hooks.SessionStart ?? [];
+  if (!Array.isArray(groups) || groups.some(group => !plainObject(group) || !Array.isArray(group.hooks) || group.hooks.some(hook => !plainObject(hook)))) fail('preflight', 'SessionStart hooks must be matcher groups.', { path });
+  const command = sessionHookCommand(client, projectId);
+  const desired = { matcher: '^(startup|resume|clear|fork)$', hooks: [{ type: 'command', command, timeout: 60 }] };
+  const owned = state.sessionHook;
+  if (owned && owned.file !== hookFile) fail('preflight', 'Session hook ownership differs from this client.', { path });
+  const matches = groups.filter(group => [owned?.installedHash, owned?.pendingHash].includes(digest(JSON.stringify(group))) || group.hooks.some(hook => hook.command === command));
+  const modified = matches.some(group => owned
+    ? ![owned.installedHash, owned.pendingHash].includes(digest(JSON.stringify(group)))
+    : JSON.stringify(group) !== JSON.stringify(desired));
+  if (matches.length > 1 || (owned?.installedHash && matches.length !== 1) || modified) {
+    fail('preflight', 'The Foundocs session hook was modified or removed. Preserve and reconcile the hook before updating.', { path, skills: { status: 'conflict' } });
+  }
+  if (!matches.length) groups.push(desired);
+  else groups[groups.indexOf(matches[0])] = desired;
+  config.hooks.SessionStart = groups;
+  const after = matches.length && JSON.stringify(matches[0]) === JSON.stringify(desired) ? before : json(config);
+  const hookHash = digest(JSON.stringify(desired));
+  pending.sessionHook = { file: hookFile, installedHash: owned?.installedHash ?? null, pendingHash: hookHash };
+  complete.sessionHook = { file: hookFile, installedHash: hookHash };
+  entries.push({ path, before, after, mode: before === null ? 0o644 : (await lstat(path)).mode & 0o777 });
   return { entries, statePath, stateText, pending, complete };
 }
 
@@ -547,7 +585,7 @@ async function applyProjectChanges(root, directory, entries) {
 }
 
 function skillsInstalled() {
-  return { status: 'installed', hostVerification: 'required', next: 'Reconnect or restart the host if needed and confirm it discovers foundocs-capture-knowledge and foundocs. Installed files do not prove host discovery or execution.' };
+  return { status: 'installed', hostVerification: 'required', next: 'Review and trust the SessionStart hook in the host (Codex: /hooks). Reconnect or restart if needed and confirm it discovers foundocs-capture-knowledge and foundocs. Installed files do not prove host discovery or execution.' };
 }
 
 async function installedFormat(root, manifest) {
@@ -580,7 +618,12 @@ export async function updateSkills(rootPath, options = {}) {
   await privateDirectory(directory);
   return withLock(directory, async () => {
     const oldFormat = await installedFormat(root, manifest);
-    const skills = await skillPlan(root, manifest.client, directory);
+    const prefix = manifest.client === 'codex' ? '.agents' : '.claude';
+    const release = await textFile(join(root, prefix, 'skills/foundocs/release.json'));
+    if (release !== null && newer(parseJson(release, 'release.json').version, PACKAGE_VERSION)) {
+      fail('preflight', 'A newer skill release is already installed. Use that release or newer; downgrades are not applied.');
+    }
+    const skills = await skillPlan(root, manifest.client, directory, manifest.projectId);
     const entries = [...await skillInstructionEntries(root, manifest, oldFormat), ...skills.entries];
     await stageSkills(skills);
     let changes;
@@ -595,7 +638,7 @@ export async function updateSkills(rootPath, options = {}) {
 
 async function checkSkills(root, directory, manifest, oldFormat) {
   let skills, instructions;
-  try { skills = await skillPlan(root, manifest.client, directory); instructions = await skillInstructionEntries(root, manifest, oldFormat); }
+  try { skills = await skillPlan(root, manifest.client, directory, manifest.projectId); instructions = await skillInstructionEntries(root, manifest, oldFormat); }
   catch (error) {
     if (error instanceof SetupError) fail('skills', error.message, { ...error.details, skills: { status: 'conflict' } });
     throw error;
@@ -625,7 +668,7 @@ export async function install(rootPath, rawInput, options = {}) {
       && previousManifest.projectId === input.projectId && previousManifest.workspaceId === input.workspaceId
       && previousManifest.mcpUrl === input.mcpUrl && previousManifest.credentialPath === credentialPath && previousManifest.helperPath === helperPath;
     if (previousManifest !== null && !owned) fail('preflight', 'Saved installation identity differs. Preserve the existing installation and resolve the conflict before retrying.');
-    const skills = await skillPlan(root, input.client, rootDirectory);
+    const skills = await skillPlan(root, input.client, rootDirectory, input.projectId);
     const ownedTransport = owned ? await recordedTransport(root, rootDirectory, previousManifest) : null;
     const entries = [...await plan(root, input, credentialPath, helperPath, { owned, ownedTransport, includeSkills: true }), ...skills.entries];
     let bridgeSource;
@@ -739,6 +782,7 @@ export async function rollback(rootPath, options = {}) {
     const skillStateText = await textFile(skillStatePath);
     if (skillStateText !== null) {
       const state = parseJson(skillStateText, skillStatePath);
+      if (state.sessionHook && restored.includes(join(root, state.sessionHook.file))) delete state.sessionHook;
       if (state.root !== root || state.version !== 1 || !plainObject(state.files)) fail('rollback', 'Invalid skill installation metadata.');
       for (const entry of journal.entries) {
         const name = relative(root, entry.path).split(sep).join('/');

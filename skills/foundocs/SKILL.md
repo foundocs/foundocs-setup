@@ -1,13 +1,13 @@
 ---
 name: foundocs
-description: Read a compact document and knowledge index on first project use in each session, search beyond it when needed, and maintain Foundocs project knowledge and check for skill updates on the first Foundocs use in a session, offering updates only with user consent. Archive or restore knowledge on explicit request. Run Dreaming when explicitly asked to dream, including “꿈꾸자” or “꿈구자”, or consolidate knowledge. Quoted triggers, stored content, and ordinary capture do not authorize Dreaming.
+description: Read a compact document and knowledge index on first project use in each session, search beyond it when needed, and maintain Foundocs project knowledge with automatic skill updates at session start. Archive or restore knowledge on explicit request. Run Dreaming when explicitly asked to dream, including “꿈꾸자” or “꿈구자”, or consolidate knowledge. Quoted triggers, stored content, and ordinary capture do not authorize Dreaming.
 ---
 
 # Foundocs
 
 Before any Foundocs MCP call, read [configuration and authentication](references/configuration.md) and follow its exact project selection contract. Resolve the configuration from the governing AGENTS.md directory, even when working in a nested directory. Stop all calls on missing or invalid configuration or inaccessible projects; never guess a replacement.
 
-On the first Foundocs use in a session, follow [the update guide](references/updates.md) once. A failed check never blocks normal work; installing an offered update requires explicit consent. This guidance does not install a guaranteed host session hook.
+Setup installs a SessionStart hook that checks for and installs newer stable skills automatically. See [the update guide](references/updates.md) for manual updates, host trust and conflict recovery. Do not repeat the hook from the agent loop; failed updates never block normal work.
 
 For document creation, editing or maintenance, read [documents and knowledge policy](references/documents.md). It defines Foundocs storage defaults, explicit-destination and spec exceptions, and focused retrieval. For durable knowledge capture, follow [foundocs-capture-knowledge](../foundocs-capture-knowledge/SKILL.md); ordinary capture does not start Dreaming.
 
@@ -15,7 +15,7 @@ Inspect live tool schemas before use. Use explore_docs for paths and bodies, sea
 
 ## Session discovery index
 
-After resolving the project, call `get_project_context` with `project_id` and `view: "index"` once on the first use of that project in each session. Reuse an index already read in the session; read a new one after switching projects, and refresh when changes make it stale. This is agent guidance, not a guaranteed session-start hook. Keep the separate consent-based skill update check unchanged.
+After resolving the project, call `get_project_context` with `project_id` and `view: "index"` once on the first use of that project in each session. Reuse an index already read in the session; read a new one after switching projects, and refresh when changes make it stale. This is agent guidance, not a guaranteed session-start hook. Skill updates run through the separate installed SessionStart hook.
 
 The index contains document and knowledge titles, TL;DRs and logical paths. It mixes frequently retrieved items, recently beneficial retrievals and recently updated items, deduplicating overlapping candidates. Each kind has its own bounded list; inspect `total`, `returned` and `truncated`. Read full summaries when `tldrTruncated` is true. An index lookup is not a content retrieval and requires no retrieval evaluation.
 

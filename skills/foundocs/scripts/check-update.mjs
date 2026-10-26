@@ -94,7 +94,7 @@ export async function checkUpdate(rootPath, options = {}) {
         await saveState(path, state);
         return { ok: true, status: 'deferred', shouldPrompt: false, latestVersion: options.defer, deferredUntil: state.deferredUntil };
       }
-      const fresh = Number.isFinite(state.checkedAt) && now >= state.checkedAt && now - state.checkedAt < DAY;
+      const fresh = !options.force && Number.isFinite(state.checkedAt) && now >= state.checkedAt && now - state.checkedAt < DAY;
       if (!fresh) {
         try {
           const release = await latestRelease(options.fetch ?? globalThis.fetch);

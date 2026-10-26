@@ -39,6 +39,8 @@ async function fixture(t, client = 'codex', { keepJournal = false } = {}) {
   const dreamingRoot = join(root, client === 'codex' ? '.agents' : '.claude', 'skills', 'foundocs');
   await rm(dreamingRoot, { recursive: true });
   await rm(join(directory, 'skills.json'));
+  const hookFile = join(root, client === 'codex' ? '.codex/hooks.json' : '.claude/settings.json');
+  await rm(hookFile);
   if (client === 'codex') {
     const configPath = join(root, '.codex/config.toml');
     const text = await readFile(configPath, 'utf8');
@@ -67,6 +69,9 @@ async function fixture(t, client = 'codex', { keepJournal = false } = {}) {
   }
   await rename(join(root, 'foundocs.json'), join(root, 'steerdocs.json'));
   const journalPath = join(directory, 'rollback.json');
+  const withoutHook = JSON.parse(await readFile(journalPath, 'utf8'));
+  withoutHook.entries = withoutHook.entries.filter(entry => entry.path !== hookFile);
+  await writeFile(journalPath, JSON.stringify(withoutHook));
   if (keepJournal) {
     const journal = JSON.parse(await readFile(journalPath, 'utf8'));
     journal.entries = journal.entries.filter(entry => !entry.path.startsWith(`${assetRoot}/`) && !entry.path.startsWith(`${dreamingRoot}/`));
