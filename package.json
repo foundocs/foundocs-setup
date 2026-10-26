@@ -1,9 +1,9 @@
 {
   "name": "@foundocs/foundocs-setup",
-  "version": "0.3.9",
+  "version": "0.3.10",
   "description": "Repeatable project setup and agent skills for the Foundocs remote MCP server",
   "foundocsRelease": {
-    "summary": "Automatically update Foundocs skills on Codex and Claude Code session start; preserve local edits, existing hooks, MCP settings and credentials, with bounded non-blocking checks."
+    "summary": "Distinguish MCP output schema failures, authentication, access, rate limits and connection errors without exposing credentials or response data."
   },
   "type": "module",
   "bin": {
