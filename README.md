@@ -145,6 +145,12 @@ The registry request has a five-second timeout and package execution a 45-second
 
 The bundled `check-update.mjs` remains a read-only manual version checker, with its 24-hour cache and deferral support for older clients. It does not itself install packages. The automatic hook intentionally ignores those old offer/deferral decisions. Private check state lives under `~/.local/share/foundocs/setup/update-checks` or the corresponding `FOUNDOCS_SETUP_HOME` directory. The installer manages both scripts, `foundocs/release.json` and the hook through its update/rollback lifecycle.
 
+## Archival and Dreaming
+
+The bundled Foundocs skill uses live tool discovery for `set_content_status` (atomic 1–100 document/knowledge archive or restore), `get_archive_candidates` (run-scoped review evidence) and `approve_archive_proposal` (one archive-only proposal explicitly approved by the human in chat). Existing `set_knowledge_status` remains compatible on servers with only single-knowledge archival. The stdio bridge forwards server tool schemas and responses dynamically; no hardcoded tool list or runtime upgrade is needed just to expose these tools.
+
+Manual identified targets execute on explicit request. Dreaming never archives automatically: the 168-hour/four-negative-evaluation threshold selects review candidates, current bodies and beneficial uses must also be assessed, and only specific current human approval applies a proposal. Documents gain archive proposals only. See the [Dreaming protocol](skills/foundocs/references/dreaming.md) and [evaluation cases](eval/README.md). Test new installs and skill updates in isolated fixtures; do not overwrite a developer's edited installed skills.
+
 ## Source and releases
 
 This repository contains the installer, bundled agent skills, templates and tests for `@foundocs/foundocs-setup`. The Foundocs application and server are maintained separately. Use this repository for installer changes and releases.
