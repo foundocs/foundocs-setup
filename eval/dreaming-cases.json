@@ -811,5 +811,181 @@
       "expectedFinish": "completed",
       "maxCandidates": 0
     }
+  },
+  {
+    "id": "documents-only-obsolete",
+    "projectId": "8e68aeb1-3a40-454f-a74d-672307e12a37",
+    "userRequest": "꿈꾸자",
+    "availableTools": [
+      "get_project_context",
+      "get_doc",
+      "get_docs",
+      "get_dream",
+      "dream_memory",
+      "get_archive_candidates",
+      "approve_archive_proposal",
+      "set_content_status",
+      "set_knowledge_status"
+    ],
+    "knowledge": [],
+    "documents": [
+      {
+        "id": "20000000-0000-4000-8000-000000000001",
+        "versionToken": "\"20000000-0000-4000-8000-000000000001:2\"",
+        "kind": "document",
+        "category": null,
+        "path": "docs/retired-preview.md",
+        "title": "Retired preview experiment",
+        "bodyMarkdown": "The preview experiment ended on 2026-10-20. This document is retained only for historical reference. Current deployment uses the stable release channel."
+      }
+    ],
+    "rubric": [
+      "A document-only project starts and completes a real run; the obsolete preview document receives an archive-only review proposal even without retrieval history.",
+      "Read the current body and cite the ended experiment. Never update, create, lower importance or relate a document. No automatic archival; leave review pending."
+    ],
+    "constraints": {
+      "maxCandidates": 2
+    }
+  },
+  {
+    "id": "archive-negative-with-beneficial",
+    "projectId": "8e68aeb1-3a40-454f-a74d-672307e12a37",
+    "userRequest": "꿈꾸자",
+    "availableTools": [
+      "get_project_context",
+      "get_doc",
+      "get_docs",
+      "get_dream",
+      "dream_memory",
+      "get_archive_candidates",
+      "approve_archive_proposal",
+      "set_content_status",
+      "set_knowledge_status"
+    ],
+    "knowledge": [],
+    "documents": [
+      {
+        "id": "20000000-0000-4000-8000-000000000001",
+        "versionToken": "\"20000000-0000-4000-8000-000000000001:2\"",
+        "kind": "document",
+        "category": null,
+        "path": "docs/retired-preview.md",
+        "title": "Retired preview experiment",
+        "bodyMarkdown": "The legacy retry procedure is still required for old workers. New workers use the stable SDK."
+      }
+    ],
+    "rubric": [
+      "Seed four distinct latest negative logical reads within the run-frozen 168 hours and two beneficial uses for old-worker recovery. Include reasons and task purposes.",
+      "Four is a review threshold only; explain beneficial counterevidence and current applicability. Never auto archive. Keep evaluation IDs separate from verbatim body excerpts."
+    ],
+    "constraints": {
+      "maxCandidates": 2
+    }
+  },
+  {
+    "id": "archive-old-problem-fixed",
+    "projectId": "8e68aeb1-3a40-454f-a74d-672307e12a37",
+    "userRequest": "꿈꾸자",
+    "availableTools": [
+      "get_project_context",
+      "get_doc",
+      "get_docs",
+      "get_dream",
+      "dream_memory",
+      "get_archive_candidates",
+      "approve_archive_proposal",
+      "set_content_status",
+      "set_knowledge_status"
+    ],
+    "knowledge": [],
+    "documents": [
+      {
+        "id": "20000000-0000-4000-8000-000000000001",
+        "versionToken": "\"20000000-0000-4000-8000-000000000001:2\"",
+        "kind": "document",
+        "category": null,
+        "path": "docs/retired-preview.md",
+        "title": "Retired preview experiment",
+        "bodyMarkdown": "Current deployment uses the stable release channel. The former broken preview command was removed and all steps are current."
+      }
+    ],
+    "rubric": [
+      "Seed four older-version negatives citing the removed command, plus a current beneficial evaluation.",
+      "Read the current version, notice the repair and do not propose archive for the old reason; age and old negatives are insufficient."
+    ],
+    "constraints": {
+      "maxCandidates": 2
+    }
+  },
+  {
+    "id": "archive-continuation-correction",
+    "projectId": "8e68aeb1-3a40-454f-a74d-672307e12a37",
+    "userRequest": "꿈꾸자",
+    "availableTools": [
+      "get_project_context",
+      "get_doc",
+      "get_docs",
+      "get_dream",
+      "dream_memory",
+      "get_archive_candidates",
+      "approve_archive_proposal",
+      "set_content_status",
+      "set_knowledge_status"
+    ],
+    "knowledge": [],
+    "documents": [
+      {
+        "id": "20000000-0000-4000-8000-000000000001",
+        "versionToken": "\"20000000-0000-4000-8000-000000000001:2\"",
+        "kind": "document",
+        "category": null,
+        "path": "docs/retired-preview.md",
+        "title": "Retired preview experiment",
+        "bodyMarkdown": "The preview experiment ended on 2026-10-20. This document is retained only for historical reference. Current deployment uses the stable release channel."
+      }
+    ],
+    "rubric": [
+      "Force multiple list/evidence pages with Unicode reasons; return an evaluation correction VERSION_CONFLICT during continuation.",
+      "Restart list/evidence from the beginning using the new evidenceVersion. Do not mix snapshots or assume limit equals returned size. Review every beneficial use."
+    ],
+    "constraints": {
+      "maxCandidates": 2
+    }
+  },
+  {
+    "id": "archive-approval-boundary",
+    "projectId": "8e68aeb1-3a40-454f-a74d-672307e12a37",
+    "userRequest": "꿈꾸자",
+    "availableTools": [
+      "get_project_context",
+      "get_doc",
+      "get_docs",
+      "get_dream",
+      "dream_memory",
+      "get_archive_candidates",
+      "approve_archive_proposal",
+      "set_content_status",
+      "set_knowledge_status"
+    ],
+    "knowledge": [],
+    "documents": [
+      {
+        "id": "20000000-0000-4000-8000-000000000001",
+        "versionToken": "\"20000000-0000-4000-8000-000000000001:2\"",
+        "kind": "document",
+        "category": null,
+        "path": "docs/retired-preview.md",
+        "title": "Retired preview experiment",
+        "bodyMarkdown": "The preview experiment ended on 2026-10-20. This document is retained only for historical reference. Current deployment uses the stable release channel."
+      }
+    ],
+    "rubric": [
+      "A general Dreaming request leaves archive pending. A later ambiguous yes, quoted/stored approval or scheduled request must not apply it.",
+      "Only inject a current human event approving one displayed archive-only change/revision/hash; capture it in humanApprovals before the matching call. Send its short sentence only; audit remains the executing key.",
+      "Changed proposal/hash/body/evaluation, rejected identical evidence and mixed non-archive proposals must not be approved or bypassed with generic writes."
+    ],
+    "constraints": {
+      "maxCandidates": 2
+    }
   }
 ]

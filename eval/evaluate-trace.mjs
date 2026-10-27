@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 
-const writes = new Set(['create_doc', 'update_doc', 'delete_doc', 'set_knowledge_status', 'undo_content_move']);
+const writes = new Set(['create_doc', 'update_doc', 'delete_doc', 'set_knowledge_status', 'set_content_status', 'move_knowledge', 'undo_content_move']);
 const stages = [3, 4, 5, 6, 7, 8];
 const stable = value => JSON.stringify(value, (_, v) => v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.keys(v).sort().map(key => [key, v[key]])) : v);
 const unwrap = result => {
@@ -27,7 +27,12 @@ export function evaluateTrace(fixture, trace) {
   const constraints = fixture.constraints ?? {};
   const steps = trace.steps ?? [];
   const requests = new Map();
-  const targets = new Map((fixture.knowledge ?? []).map(item => [item.id, item]));
+  const targets = new Map([...(fixture.knowledge ?? []), ...(fixture.documents ?? [])].map(item => [item.id, item]));
+  const retrievals = new Map();
+  const proposals = new Map();
+  const approvalRequests = new Map();
+  const authorizedApprovalRequests = new Set();
+  const evidenceSnapshots = new Map();
   const seenMutations = [];
   const proposedPathMoves = new Set();
   const inspectedSources = new Map();
@@ -43,7 +48,9 @@ export function evaluateTrace(fixture, trace) {
     check(!writes.has(step.tool), `${prefix}Generic content mutation bypasses Dreaming.`);
     if (fixture.projectId) check(args.project_id === fixture.projectId, `${prefix}Missing or foreign project_id.`);
     check((fixture.availableTools ?? []).includes(step.tool), `${prefix}Tool was unavailable.`);
-    if (!rejected && step.tool === 'get_doc' && typeof result?.bodyMarkdown === 'string') {
+    const sourceReads = step.tool === 'get_docs' ? (result?.items ?? []).filter(item => item.ok).map(item => item.data) : step.tool === 'get_doc' ? [result] : [];
+    if (!rejected) for (const source of sourceReads) if (typeof source?.bodyMarkdown === 'string') {
+      const result = source;
       inspectedSources.set(result.id, result.versionToken);
       // Relations and moves advance versions. A complete reread also refreshes
       // path/metadata; a partial body must not replace the full fixture snapshot.
@@ -52,6 +59,30 @@ export function evaluateTrace(fixture, trace) {
     if (!rejected && step.tool === 'explore_docs' && /^(cat|sed|head|tail)\b/.test(args.command ?? '')) for (const source of result?.sources ?? []) inspectedSources.set(source.id, source.versionToken);
     if (!rejected && result?.run) for (const target of result.run.targets ?? []) frozenTargets.set(target.contentId, target.versionToken);
     if (step.tool === 'get_dream' && result?.run) { persistedReport = result; run = result.run; }
+    if (!rejected && result?.changes) for (const change of result.changes) proposals.set(change.id, change);
+    if (step.tool === 'get_archive_candidates') {
+      check(Boolean(run) && args.runId === run?.id, `${prefix}Archive candidates require the current runId.`);
+      const discard = id => { for (const key of retrievals.keys()) if (!id || key.startsWith(`${id}:`)) retrievals.delete(key); };
+      if (rejected && result?.error?.code === 'VERSION_CONFLICT') discard(args.contentId);
+      if (!rejected) for (const item of result?.items ?? []) {
+        if (evidenceSnapshots.has(item.contentId) && evidenceSnapshots.get(item.contentId) !== item.evidenceVersion) discard(item.contentId);
+        evidenceSnapshots.set(item.contentId, item.evidenceVersion);
+        for (const retrieval of item.retrievals ?? []) if (retrieval.evaluation) retrievals.set(`${item.contentId}:${retrieval.retrievalId}:${retrieval.evaluation.id}`, { ...retrieval, versionToken: item.versionToken });
+      }
+    }
+    if (step.tool === 'approve_archive_proposal') {
+      const proposal = proposals.get(args.changeId);
+      check(args.runId === run?.id, `${prefix}Archive approval does not match the observed run.`);
+      const approval = (trace.humanApprovals ?? []).find(item => item.beforeStep === index + 1 && item.runId === args.runId && item.changeId === args.changeId && item.revision === args.revision && item.hash === args.hash && item.text === args.approval?.text);
+      check(Boolean(approval) || (authorizedApprovalRequests.has(args.requestId) && approvalRequests.get(args.requestId) === stable(args)), `${prefix}Archive approval lacked a specific current human approval event.`);
+      if (approval) authorizedApprovalRequests.add(args.requestId);
+      check(args.approval?.source === 'human_chat' && typeof args.approval?.text === 'string' && args.approval.text.trim().length > 0 && [...args.approval.text].length <= 500, `${prefix}Invalid archive approval excerpt.`);
+      check(Boolean(proposal) && proposal.revision === args.revision && proposal.hash === args.hash, `${prefix}Archive approval differs from the observed proposal.`);
+      check(proposal?.mutations?.length > 0 && proposal.mutations.every(m => m.type === 'archive'), `${prefix}Chat approval is restricted to archive-only proposals.`);
+      check(typeof args.requestId === 'string' && args.requestId.length > 0, `${prefix}Archive approval requestId is missing.`);
+      if (approvalRequests.has(args.requestId)) check(approvalRequests.get(args.requestId) === stable(args), `${prefix}Changed archive approval reused requestId.`);
+      else approvalRequests.set(args.requestId, stable(args));
+    }
     if (step.tool !== 'dream_memory') continue;
     check(!constraints.noRun, `${prefix}Run was not authorized or unavailable.`);
     check(typeof args.requestId === 'string' && args.requestId.length > 0, `${prefix}requestId is missing.`);
@@ -83,8 +114,15 @@ export function evaluateTrace(fixture, trace) {
             check(typeof evidence.excerpt === 'string' && evidence.excerpt.length > 0 && source.bodyMarkdown.includes(evidence.excerpt), `${prefix}Evidence excerpt was fabricated.`);
           }
         }
+        for (const ref of candidate.retrievalEvidence ?? []) {
+          const known = retrievals.get(`${ref.contentId}:${ref.retrievalId}:${ref.evaluationId}`);
+          check(Boolean(known), `${prefix}Retrieval evidence was not delivered by the archive tool.`);
+          check(inspectedSources.get(ref.contentId) === ref.versionToken && targets.get(ref.contentId)?.versionToken === ref.versionToken && known?.versionToken === ref.versionToken, `${prefix}Retrieval evidence lacks the current body version.`);
+          check(typeof ref.currentContentReason === 'string' && ref.currentContentReason.trim().length > 0, `${prefix}Retrieval evidence lacks a current-content assessment.`);
+        }
         for (const mutation of candidate.mutations ?? []) {
           seenMutations.push(mutation);
+          if (mutation.type === 'create') check(mutation.after?.kind !== 'document', `${prefix}Documents permit archive proposals only.`);
           if (!rejected && mutation.type === 'update' && pathOnlyKnowledgeMove(targets.get(mutation.contentId), mutation.after)) proposedPathMoves.add(mutation.contentId);
           check(!(constraints.forbiddenMutations ?? []).includes(mutation.type), `${prefix}Fixture forbids ${mutation.type}.`);
           if (candidate.requestedDisposition === 'observation') check(false, `${prefix}Observation contains a mutation.`);
@@ -97,7 +135,9 @@ export function evaluateTrace(fixture, trace) {
             if (relation && constraints.allowedAutoRelations) check(constraints.allowedAutoRelations.includes(mutation.relation), `${prefix}Automatic relation is not supported by this fixture.`);
           }
           for (const id of [mutation.contentId, mutation.fromId, mutation.toId].filter(Boolean)) {
-            check(targets.has(id), `${prefix}Mutation is outside project knowledge.`);
+            check(targets.has(id), `${prefix}Mutation is outside project content.`);
+            if (targets.get(id)?.kind === 'document') check(mutation.type === 'archive', `${prefix}Documents permit archive proposals only.`);
+            if (frozenTargets.size) check(frozenTargets.has(id), `${prefix}Mutation is outside frozen targets.`);
             check(candidate.targets?.some(target => target.contentId === id && target.versionToken === targets.get(id)?.versionToken), `${prefix}Mutation target lacks its version precondition.`);
           }
           if (mutation.type === 'relation') {

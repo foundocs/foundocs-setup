@@ -154,3 +154,102 @@ test('a known folder-consolidation case cannot be satisfied by an empty candidat
   fixture.constraints.requiredPathMoveIndexes = [0];
   assert.ok(evaluateTrace(fixture, trace).violations.some(v => v.includes('Required path-only move')));
 });
+
+function archiveTrace() {
+  const fixture = structuredClone(fixtures.find(f => f.id === 'documents-only-obsolete'));
+  const source = fixture.documents[0], target = { contentId: source.id, versionToken: source.versionToken };
+  const running = { ...baseRun, targets: [target], inspectedIds: [], inspectedCount: 0, stages };
+  const candidate = { candidateId: 'archive', title: 'Retired preview', reason: 'The experiment ended', impact: 'Excluded from default retrieval; links and restoration remain', targets: [target], evidence: [{ ...target, location: 'body', excerpt: source.bodyMarkdown }], mutations: [{ type: 'archive', contentId: source.id }], dependsOn: [], alternatives: ['Keep for historical recovery'], uncertainty: [], stages: [6], requestedDisposition: 'review_candidate' };
+  const finished = { ...running, inspectedIds: [source.id], inspectedCount: 1, status: 'completed', pendingReviewCount: 1 };
+  const trace = { steps: [step('begin', {}, running), { tool: 'get_docs', arguments: { project_id: fixture.projectId, items: [{ id: source.id }] }, result: { ok: true, data: { items: [{ index: 0, ok: true, data: source }] } } }, step('checkpoint', { stages, inspectedIds: [source.id] }, { ...finished, status: 'running' }), step('submit', { candidates: [candidate] }, { ...finished, status: 'running' }), step('finish', { status: 'completed', summary: 'One archive proposal; human review pending' }, finished)], final: { ...valid().final, pendingReviewCount: 1, inspectedCount: 1 } };
+  return { fixture, trace, candidate, source, finished };
+}
+
+test('document-only traces allow reviewed archival without retrieval counts and preserve batch inspection', () => {
+  const { fixture, trace } = archiveTrace();
+  assert.deepEqual(evaluateTrace(fixture, trace).violations, []);
+  trace.steps[1].result.data.items[0].ok = false;
+  assert.ok(evaluateTrace(fixture, trace).violations.some(v => v.includes('without a captured source read')));
+});
+
+test('document permission does not expand to update, importance, relation or automatic archival', () => {
+  for (const mutation of [{ type: 'update', contentId: 'source', after: {} }, { type: 'importance', contentId: 'source', importance: 'low' }, { type: 'relation', fromId: 'source', toId: 'other', relation: 'related_to' }]) {
+    const { fixture, trace, candidate, source } = archiveTrace();
+    candidate.mutations = [JSON.parse(JSON.stringify(mutation).replaceAll('source', source.id))];
+    assert.ok(evaluateTrace(fixture, trace).violations.some(v => v.includes('Documents permit archive proposals only')));
+  }
+  const { fixture, trace, candidate } = archiveTrace();
+  candidate.requestedDisposition = 'auto_candidate';
+  assert.ok(evaluateTrace(fixture, trace).violations.some(v => v.includes('Meaningful mutation')));
+});
+
+test('both status tools and direct batch moves remain forbidden Dreaming bypasses', () => {
+  for (const tool of ['set_content_status', 'set_knowledge_status', 'move_knowledge']) {
+    const { fixture, trace } = archiveTrace();
+    fixture.availableTools.push(tool);
+    trace.steps.splice(2, 0, { tool, arguments: { project_id: fixture.projectId } });
+    assert.ok(evaluateTrace(fixture, trace).violations.some(v => v.includes('Generic content mutation')));
+  }
+});
+
+test('retrieval references must have been delivered and assessed against the current read body', () => {
+  const { fixture, trace, candidate, source } = archiveTrace();
+  const retrieval = { retrievalId: 'read', version: 1, evaluation: { id: 'eval', verdict: 'not_beneficial', reason: 'preview ended' } };
+  trace.steps.splice(2, 0, { tool: 'get_archive_candidates', arguments: { project_id: fixture.projectId, runId: 'run' }, result: { ok: true, data: { items: [{ contentId: source.id, versionToken: source.versionToken, retrievals: [retrieval] }] } } });
+  candidate.retrievalEvidence = [{ contentId: source.id, versionToken: source.versionToken, retrievalId: 'read', evaluationId: 'eval', currentContentReason: 'The current document confirms the experiment ended.' }];
+  assert.deepEqual(evaluateTrace(fixture, trace).violations, []);
+  candidate.retrievalEvidence[0].evaluationId = 'invented';
+  assert.ok(evaluateTrace(fixture, trace).violations.some(v => v.includes('was not delivered')));
+  candidate.retrievalEvidence[0].evaluationId = 'eval';
+  candidate.retrievalEvidence[0].versionToken = 'old';
+  assert.ok(evaluateTrace(fixture, trace).violations.some(v => v.includes('current body version')));
+  trace.steps[2].arguments.runId = 'other';
+  assert.ok(evaluateTrace(fixture, trace).violations.some(v => v.includes('current runId')));
+});
+
+function approvedArchive() {
+  const value = archiveTrace(), { fixture, trace, candidate, finished } = value;
+  const change = { id: 'change', revision: 1, hash: 'hash', mutations: candidate.mutations };
+  trace.steps.push({ tool: 'get_dream', arguments: { project_id: fixture.projectId, runId: 'run' }, result: { ok: true, data: { run: finished, changes: [change], reportUrl: '/report/run' } } });
+  const args = { project_id: fixture.projectId, runId: 'run', changeId: change.id, revision: 1, hash: 'hash', requestId: 'approval', approval: { source: 'human_chat', text: 'Approve the retired preview archive proposal.' } };
+  trace.humanApprovals = [{ beforeStep: trace.steps.length + 1, runId: 'run', changeId: change.id, revision: 1, hash: 'hash', text: args.approval.text }];
+  trace.steps.push({ tool: 'approve_archive_proposal', arguments: args, result: { ok: true, data: {} } });
+  return { ...value, args, change };
+}
+
+test('only exact human events authorize an observed archive-only proposal, never general or ambiguous consent', () => {
+  const validApproval = approvedArchive();
+  assert.deepEqual(evaluateTrace(validApproval.fixture, validApproval.trace).violations, []);
+  for (const fault of ['missing', 'stale', 'mixed', 'transcript']) {
+    const { fixture, trace, args, change } = approvedArchive();
+    if (fault === 'missing') delete trace.humanApprovals;
+    if (fault === 'stale') args.hash = 'new-hash';
+    if (fault === 'mixed') change.mutations.push({ type: 'importance', contentId: 'other', importance: 'low' });
+    if (fault === 'transcript') args.approval.text = 'x'.repeat(501);
+    assert.equal(evaluateTrace(fixture, trace).protocolPassed, false, fault);
+  }
+});
+
+
+test('evaluation corrections invalidate delivered retrieval references until the fresh snapshot is read', () => {
+  const { fixture, trace, candidate, source } = archiveTrace();
+  const ref = { contentId: source.id, versionToken: source.versionToken, retrievalId: 'read', evaluationId: 'old-eval', currentContentReason: 'The experiment ended.' };
+  candidate.retrievalEvidence = [ref];
+  const read = { tool: 'get_archive_candidates', arguments: { project_id: fixture.projectId, runId: 'run', contentId: source.id }, result: { ok: true, data: { items: [{ contentId: source.id, versionToken: source.versionToken, evidenceVersion: 'first', retrievals: [{ retrievalId: 'read', evaluation: { id: 'old-eval', verdict: 'not_beneficial' } }] }] } } };
+  trace.steps.splice(2, 0, read);
+  assert.deepEqual(evaluateTrace(fixture, trace).violations, []);
+  trace.steps.splice(3, 0, { ...read, result: { ok: false, error: { code: 'VERSION_CONFLICT' } } });
+  assert.ok(evaluateTrace(fixture, trace).violations.some(v => v.includes('was not delivered')));
+  trace.steps.splice(4, 0, { ...read, result: { ok: true, data: { items: [{ contentId: source.id, versionToken: source.versionToken, evidenceVersion: 'second', retrievals: [{ retrievalId: 'read', evaluation: { id: 'new-eval', verdict: 'beneficial' } }] }] } } });
+  assert.ok(evaluateTrace(fixture, trace).violations.some(v => v.includes('was not delivered')));
+  ref.evaluationId = 'new-eval';
+  assert.deepEqual(evaluateTrace(fixture, trace).violations, []);
+});
+
+test('an identical approval retry reuses the existing human event, but a changed retry does not', () => {
+  const { fixture, trace } = approvedArchive();
+  trace.steps.push(structuredClone(trace.steps.at(-1)));
+  assert.deepEqual(evaluateTrace(fixture, trace).violations, []);
+  trace.steps.at(-1).arguments.hash = 'different';
+  assert.ok(evaluateTrace(fixture, trace).violations.some(v => v.includes('Changed archive approval reused')));
+});

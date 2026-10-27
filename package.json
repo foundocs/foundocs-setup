@@ -1,9 +1,9 @@
 {
   "name": "@foundocs/foundocs-setup",
-  "version": "0.3.12",
+  "version": "0.3.13",
   "description": "Repeatable project setup and agent skills for the Foundocs remote MCP server",
   "foundocsRelease": {
-    "summary": "Use get_docs for bounded batch reads and move_knowledge for atomic same-category directory moves; preserve retrieval tracking, aliases and undo history."
+    "summary": "Archive or restore documents and knowledge atomically; review Dreaming archive evidence and relay only specific human chat approvals."
   },
   "type": "module",
   "bin": {
@@ -26,7 +26,7 @@
     "build": "node build.mjs",
     "prepack": "node build.mjs",
     "test": "node build.mjs && node --test test/*.test.mjs",
-    "typecheck": "node --check src/cli.mjs && node --check src/setup.mjs && node --check src/auth.mjs && node --check src/bridge.mjs && node --check src/legacy-compat.mjs && node --check src/skill-assets.mjs && node --check src/runtime.mjs && node --check skills/foundocs/scripts/check-update.mjs && node --check skills/foundocs/scripts/session-start.mjs"
+    "typecheck": "node --check eval/evaluate-trace.mjs && node --check eval/product-archive-check.mjs && node --check src/cli.mjs && node --check src/setup.mjs && node --check src/auth.mjs && node --check src/bridge.mjs && node --check src/legacy-compat.mjs && node --check src/skill-assets.mjs && node --check src/runtime.mjs && node --check skills/foundocs/scripts/check-update.mjs && node --check skills/foundocs/scripts/session-start.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/client": "2.3.1",
