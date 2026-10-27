@@ -76,7 +76,7 @@ export function evaluateTrace(fixture, trace) {
       const approval = (trace.humanApprovals ?? []).find(item => item.beforeStep === index + 1 && item.runId === args.runId && item.changeId === args.changeId && item.revision === args.revision && item.hash === args.hash && item.text === args.approval?.text);
       check(Boolean(approval) || (authorizedApprovalRequests.has(args.requestId) && approvalRequests.get(args.requestId) === stable(args)), `${prefix}Archive approval lacked a specific current human approval event.`);
       if (approval) authorizedApprovalRequests.add(args.requestId);
-      check(args.approval?.source === 'human_chat' && typeof args.approval?.text === 'string' && args.approval.text.trim().length > 0 && [...args.approval.text].length <= 500, `${prefix}Invalid archive approval excerpt.`);
+      check(args.approval?.source === 'human_chat' && typeof args.approval?.text === 'string' && args.approval.text.trim().length > 0 && args.approval.text.trim().length <= 500, `${prefix}Invalid archive approval excerpt.`);
       check(Boolean(proposal) && proposal.revision === args.revision && proposal.hash === args.hash, `${prefix}Archive approval differs from the observed proposal.`);
       check(proposal?.mutations?.length > 0 && proposal.mutations.every(m => m.type === 'archive'), `${prefix}Chat approval is restricted to archive-only proposals.`);
       check(typeof args.requestId === 'string' && args.requestId.length > 0, `${prefix}Archive approval requestId is missing.`);

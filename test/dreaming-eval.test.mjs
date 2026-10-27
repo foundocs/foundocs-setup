@@ -253,3 +253,23 @@ test('an identical approval retry reuses the existing human event, but a changed
   trace.steps.at(-1).arguments.hash = 'different';
   assert.ok(evaluateTrace(fixture, trace).violations.some(v => v.includes('Changed archive approval reused')));
 });
+
+
+test('archive approval bounds match server-trimmed UTF-16 length for Unicode and whitespace', () => {
+  for (const [text, accepted] of [
+    ['👍'.repeat(250), true],
+    ['👍'.repeat(251), false],
+    [' \t\n' + '👍'.repeat(250) + '\n ', true],
+    [' \t\n' + '👍'.repeat(251) + '\n ', false],
+    [' ' + 'a'.repeat(500) + ' ', true],
+    [' \t\n ', false],
+  ]) {
+    const { fixture, trace, args } = approvedArchive();
+    args.approval.text = text;
+    trace.humanApprovals[0].text = text;
+    const evaluation = evaluateTrace(fixture, trace);
+    assert.equal(evaluation.protocolPassed, accepted, `Trimmed UTF-16 length: ${text.trim().length}`);
+    if (accepted) assert.deepEqual(evaluation.violations, []);
+    else assert.ok(evaluation.violations.some(v => v.includes('Invalid archive approval excerpt')));
+  }
+});
