@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, writeFile, readFile, rm, symlink, link, realpath } from
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
-import { EffectCoordinator } from '../src/effect.mjs';
+import { EffectCoordinator, crashSettlementDeadline } from '../src/effect.mjs';
 import { freezeSnapshot, readJson, saveJson, cleanExpired } from '../src/effect-storage.mjs';
 import { Observation, hash, EffectError, missingObservation, normalizeProbe } from '../src/effect-core.mjs';
 import { providerEnvironment, verifiedInit } from '../src/effect-runner.mjs';
@@ -127,4 +127,8 @@ test('heartbeat failure stops running child and preserves partial tokens plus te
   const before=process.env.PATH;process.env.PATH=`${bin}:${before}`;t.after(()=>{process.env.PATH=before;});let checks=0,observed=false;
   const result=await runProbe({cwd:f.root,brief:brief(),snapshot:{files:[]},context:[],policy,probe:{arm:'without_foundocs',startedAt:new Date().toISOString()},observe:async()=>{observed=true;},heartbeat:async()=>{if(!observed)return true;checks++;throw new Error('network');},heartbeatMs:100});
   assert.equal(checks,1);assert.equal(result.status,'cancelled');assert.equal(result.observation.completeness,'partial');assert.equal(result.observation.usage.totalTokens,17);assert.equal(result.observation.estimatedCostUsd,.02);
+});
+
+test('unobserved crash settlement includes bounded execution allowance and is deterministic', () => {
+  assert.equal(Date.parse(crashSettlementDeadline(policy, 0)), 86400000 + 2 * (60000 + 5000));
 });

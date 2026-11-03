@@ -17,6 +17,9 @@ export async function measurementInstallation(rootPath, options = {}) {
   await validateInstallation(root, directory, manifest);
   return { root, base: join(directory, 'effects'), manifest };
 }
+// Unobserved crash: finite upper allowance for two timeout/grace windows, never renewed by recovery.
+export const crashSettlementDeadline = (policy, now = Date.now()) => new Date(now + 2 * (policy.perProbeTimeoutMs + 5000) + 86400000).toISOString();
+
 export class EffectCoordinator {
   constructor({ root, base, remote, probe = runProbe, check = capabilities }) { Object.assign(this, { root, base, remote, probe, check }); }
   async initialize() { await cleanExpired(this.base); }
@@ -137,7 +140,7 @@ export class EffectCoordinator {
       state.reservation = reserved.reservation;
       if (state.reservation.policy.revision !== state.prepared.policyRevision || hash(state.reservation.policy) !== hash(state.policy)) throw new EffectError('policy_changed');
       state.probes = Object.fromEntries(['with_foundocs', 'without_foundocs'].map(arm => [arm, this.baseProbe(state, arm)]));
-      state.settlementExpiresAt = new Date(Date.now() + 86400000).toISOString();
+      state.settlementExpiresAt = crashSettlementDeadline(state.policy);
       await saveJson(join(dir, 'state.json'), state);
       const control = async (action, arm, probe) => {
         const args = { requestId: randomUUID(), runId: state.reservation.runId, leaseToken: state.reservation.leaseToken, policyRevision: state.policy.revision, action, ...(arm ? { arm } : {}), ...(probe ? { probe } : {}) };
@@ -157,7 +160,7 @@ export class EffectCoordinator {
         if (!(await control('start_arm', arm)) || controller.signal.aborted) break;
         const probe = state.probes[arm]; probe.startedAt = new Date().toISOString(); probe.status = 'failed';
         await saveJson(join(dir, 'state.json'), state);
-        state.probes[arm] = await this.probe({ cwd, brief: state.brief, snapshot: state.snapshot, context: arm === 'with_foundocs' ? state.reservation.deliveredContext : [], policy: state.policy, probe, signal: controller.signal, heartbeat: () => control('heartbeat'), observe: async observation => { probe.observation = observation; state.settlementExpiresAt = new Date(Date.now() + 86400000).toISOString(); await saveJson(join(dir, 'state.json'), state); } });
+        state.probes[arm] = await this.probe({ cwd, brief: state.brief, snapshot: state.snapshot, context: arm === 'with_foundocs' ? state.reservation.deliveredContext : [], policy: state.policy, probe, signal: controller.signal, heartbeat: () => control('heartbeat'), observe: async observation => { probe.observation = observation; state.settlementExpiresAt = crashSettlementDeadline(state.policy); await saveJson(join(dir, 'state.json'), state); } });
         state.probes[arm] = normalizeProbe(state.probes[arm], { criteria: state.criterionIds.map(id => ({ id })) });
         await saveJson(join(dir, 'state.json'), state);
         if (!(await control('heartbeat', undefined, state.probes[arm]))) break;
