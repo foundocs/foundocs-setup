@@ -19,6 +19,10 @@ Whenever information retrieved from Foundocs helps the current task, explicitly 
 
 Keep the announcement brief and specific. A tool call or retrieval evaluation alone does not count as telling the user. Group related findings into one update; do not announce each read or repeat the same discovery. Only claim a useful discovery when the retrieved information actually helped.
 
+## Check optional measurement before information exposure
+
+At the start of each information task, before its first index/search/read, call `get_effect_measurement_policy` once and reuse the response for that task. OFF means no separate evaluation child or probe inference; the policy response still adds ordinary context. When ON, read [the automatic host procedure](references/effect-measurement.md) and automatically execute its local `measure prepare` before any index/TL;DR exposure, propagate effectPreparationId and taskId on all reads, and run once after beneficial evaluation. Never enable policy yourself or ask the user to type each CLI command. Unsupported hosts must say so and continue ordinary work without claiming a sample. Do not reconstruct a brief after exposure.
+
 ## Session discovery index
 
 After resolving the project, call `get_project_context` with `project_id` and `view: "index"` once on the first use of that project in each session. Reuse an index already read in the session; read a new one after switching projects, and refresh when changes make it stale. This is agent guidance, not a guaranteed session-start hook. Skill updates run through the separate installed SessionStart hook.

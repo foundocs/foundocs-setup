@@ -5,6 +5,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { legacy } from './legacy-compat.mjs';
 import { readCredential, windowsPrivateAcl } from './auth.mjs';
 import { loadInstallation, textFile, parseJson, validateUrl, SetupError } from './setup.mjs';
+import { cleanExpired } from './effect-storage.mjs';
 import { runBridge } from './bridge.mjs';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -64,5 +65,12 @@ export async function resolveRuntime(projectId, options = {}) {
 
 export async function startRuntime(projectId, options = {}) {
   const manifest = await resolveRuntime(projectId, options);
+  try {
+    const { directory } = await loadInstallation(manifest.root, options);
+    await cleanExpired(join(directory, 'effects'));
+  } catch {
+    // Optional measurement cleanup must not disable ordinary authenticated MCP.
+    process.stderr.write('Foundocs measurement cleanup unavailable; ordinary MCP continues. Run measure diagnostics before another sample.\n');
+  }
   await runBridge(manifest);
 }
