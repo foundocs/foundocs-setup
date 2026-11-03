@@ -1,6 +1,16 @@
 # Documents and knowledge
 
-- Save user-requested documents in this project's Foundocs documents by default. Save durable user-provided project context, lasting rules and preferences, confirmed decisions and verified reusable learnings in Foundocs knowledge.
+## Document authorization
+
+- Create, add to or edit Foundocs documents only within the user's request or approval. Carry out an explicit document request directly; do not add another confirmation for the same authorized scope.
+- If you identify a useful document outside that scope, briefly explain its purpose and proposed content, ask whether to save it to Foundocs, and wait for the user's approval before writing it. Silence is not approval.
+- A general development, QA, research or agent-handoff task does not by itself authorize a separate document. Do not automatically create per-task QA reports or handoff documents merely because they could be useful.
+- Foundocs as the default destination specifies where an authorized document belongs, not whether to create it. Explicit destinations, file formats and repository spec conventions still apply within the authorized scope.
+- This boundary applies to documents (`kind: "document"`, normally `docs/`). Automatic capture of durable rules, decisions and verified learnings remains governed by the knowledge-capture skill. Do not reclassify an unsolicited report as knowledge to bypass document approval.
+
+## Storage and knowledge capture
+
+- Save requested or approved documents in this project's Foundocs documents by default. Save durable user-provided project context, lasting rules and preferences, confirmed decisions and verified reusable learnings in Foundocs knowledge.
 - Knowledge stays under the fixed `knowledge/rules/`, `knowledge/learnings/` and `knowledge/decisions/` roots. Reuse related topical folders, nesting when useful; files directly under a category root remain valid. Group related items and avoid duplicate shallow folders. Folder organization never changes an item's meaning or category implicitly.
 - Explicit user destinations and formats take precedence. Keep specifications under the repository's existing spec conventions.
 - After resolving the configured project, on its first Foundocs use in each session call `get_project_context` with `project_id` and `view: "index"` once, if the live schema supports it. Reuse an index already read, and read a new one when switching projects. This is guidance, not a guaranteed session-start hook. If an older server lacks index mode, use the existing context call without `view` and continue searching; authentication and project errors still require correction.
