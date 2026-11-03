@@ -14,7 +14,7 @@ Use `create_doc` with `kind: "knowledge"`, a category of `rules`, `decisions` or
 
 The three category roots are fixed. Reuse an existing topical folder before creating another; nested paths such as `knowledge/learnings/auth/session-expiry.md` and direct-root files such as `knowledge/rules/testing.md` are both valid. Group related information rather than producing one small file or near-duplicate folder per fact. Do not change category merely to place an item in a convenient folder.
 
-For user-requested documents, use `kind: "document"`, `category: null` and a path under `docs/` ending in `.md`, unless the user specified another destination or format or repository spec conventions apply. These are Foundocs logical paths, not local files.
+For documents within the user's request or approval, use `kind: "document"`, `category: null` and a path under `docs/` ending in `.md`, unless the user specified another destination or format or repository spec conventions apply. Follow the [document authorization policy](../../foundocs/references/documents.md#document-authorization) before creating or editing a document; this knowledge-writing guide does not grant that permission. These are Foundocs logical paths, not local files.
 
 ## Existing items
 
