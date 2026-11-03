@@ -1,9 +1,9 @@
 {
   "name": "@foundocs/foundocs-setup",
-  "version": "0.3.13",
+  "version": "0.3.14",
   "description": "Repeatable project setup and agent skills for the Foundocs remote MCP server",
   "foundocsRelease": {
-    "summary": "Archive or restore documents and knowledge atomically; review Dreaming archive evidence and relay only specific human chat approvals."
+    "summary": "Announce useful Foundocs discoveries in chat with concrete benefits, and capture verified project answers for future reuse."
   },
   "type": "module",
   "bin": {
