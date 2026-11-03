@@ -182,3 +182,16 @@ git push origin --follow-tags
 `npm version patch` creates a version commit and annotated `vX.Y.Z` tag. The publish workflow validates the tag against `package.json`, runs the tests, builds the package and publishes it publicly with provenance. Each npm version can only be published once; use a new version for the first automated release if the current version already exists.
 
 See [npm Trusted Publishing](https://docs.npmjs.com/trusted-publishers/).
+
+
+## Optional effect measurement (0.3.15)
+
+The installed Foundocs skill automatically checks the project policy once per information task. When an administrator has enabled measurement, a supported shell host freezes a short pre-retrieval brief and allowlisted local source snapshot before its first index/search/read, then runs one measured pair after a beneficial retrieval. Users do not need to type a command for each task. Policy remains OFF unless a web owner/admin explicitly changes it.
+
+The initial verified probe runner is Claude Code 2.1.312 on macOS, with an existing Claude login and an exact model ID such as `claude-haiku-5-5`. Codex and Claude shell hosts can coordinate it. Codex-native probes, Linux/Windows pending platform canaries, shell-less hosts and missing isolation/authentication are reported as unsupported without a fallback. Child tools are restricted to Read/Glob/Grep in separate snapshots; only the coordinator receives Foundocs credentials. The watchdog also terminates the provider CLI when its coordinator crashes.
+
+`foundocs-setup measure prepare|run|flush --root ABSOLUTE_PATH` accepts private stdin JSON. [The installed procedure](skills/foundocs/references/effect-measurement.md) defines the exact inputs and automatic host sequence. This is an opt-in sampled information-acquisition comparison, not whole-task savings. Actual input/output/cache usage and nullable estimated USD are kept separately, including failed and cancelled costs. Max turns and estimated USD settings are not hard API/billing caps.
+
+Raw local data expires at preparation +24h; normalized settlement data has its own finite completion +24h lifetime. Expired raw data cannot be restored by a concurrent journal write. Uncertain report transmission retries the same requestId and payload without repeating model inference. Raw CLI transcripts are not stored by default.
+
+Maintainers can run the opt-in synthetic checks with `FOUNDOCS_EFFECT_LIVE_CHECK=1`: `node eval/effect-isolation-check.mjs` checks actual filesystem tool boundaries; `eval/effect-api-check.mjs`, executed using the product checkout's tsx runner with `FOUNDOCS_PRODUCT_DIR` and optional `FOUNDOCS_EFFECT_CLI`, uses its isolated PostgreSQL/HTTP fixture. These checks incur provider usage, never enable a production project, and remove their temporary fixtures.
