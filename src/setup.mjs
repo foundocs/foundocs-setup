@@ -214,7 +214,10 @@ function sameConfig(a, b) {
   return JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
 }
 
-export const RUNTIME_ENV = ['FOUNDOCS_SETUP_HOME', 'FOUNDOCS_EPISODES', 'FOUNDOCS_API_KEY', 'FOUNDOCS_PROJECT_ID', 'FOUNDOCS_WORKSPACE_ID', 'STEERDOCS_SETUP_HOME', 'STEERDOCS_API_KEY', 'STEERDOCS_PROJECT_ID', 'STEERDOCS_WORKSPACE_ID'];
+// Published portable runtimes before 0.3.19 did not forward the episode opt-out.
+// Keep historical requirements fixed; new environment fields need a version boundary.
+const PRE_EPISODE_RUNTIME_ENV = ['FOUNDOCS_SETUP_HOME', 'FOUNDOCS_API_KEY', 'FOUNDOCS_PROJECT_ID', 'FOUNDOCS_WORKSPACE_ID', 'STEERDOCS_SETUP_HOME', 'STEERDOCS_API_KEY', 'STEERDOCS_PROJECT_ID', 'STEERDOCS_WORKSPACE_ID'];
+export const RUNTIME_ENV = [PRE_EPISODE_RUNTIME_ENV[0], 'FOUNDOCS_EPISODES', ...PRE_EPISODE_RUNTIME_ENV.slice(1)];
 
 export function portableTransport(projectId, version = PACKAGE_VERSION, client = 'codex') {
   if (client === 'claude') return { type: 'stdio', command: 'npx', args: ['--yes', `@foundocs/foundocs-setup@${version}`, 'mcp', '--project-id', projectId] };
@@ -226,11 +229,12 @@ function transportOf(server) { return server && { command: server.command, args:
 export function portableVersion(server, projectId, client = 'codex') {
   if (!plainObject(server) || server.command !== 'npx' || !Array.isArray(server.args) || server.args.length !== 5) return null;
   if (server.cwd !== undefined || server.env !== undefined || server.url !== undefined || server.headersHelper !== undefined) return null;
-  if (client === 'claude' ? server.type !== 'stdio' : (!Array.isArray(server.env_vars) || !RUNTIME_ENV.every(name => server.env_vars.includes(name)))) return null;
   const version = /^@foundocs\/foundocs-setup@((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$/.exec(server.args[1])?.[1];
   if (!version || !sameConfig(transportOf(server), transportOf(portableTransport(projectId, version, client)))) return null;
   const [major, minor, patch] = version.split('.').map(Number);
   if (major === 0 && (minor < 3 || (minor === 3 && patch < (client === 'claude' ? 5 : 4)))) return null;
+  const requiredEnv = newer('0.3.19', version) ? PRE_EPISODE_RUNTIME_ENV : RUNTIME_ENV;
+  if (client === 'claude' ? server.type !== 'stdio' : (!Array.isArray(server.env_vars) || !requiredEnv.every(name => server.env_vars.includes(name)))) return null;
   return version;
 }
 
