@@ -6,6 +6,7 @@ import { validateInstallation } from './runtime.mjs';
 import { RUNNER, CLI_VERSION, UUID, EffectError, hash, missingObservation, normalizeProbe, toolPolicy, validateBrief } from './effect-core.mjs';
 import { privateDir, readJson, saveJson, cleanExpired, purgeRaw, freezeSnapshot, copySnapshot } from './effect-storage.mjs';
 import { capabilities, runProbe } from './effect-runner.mjs';
+import { workingSessionModel } from './effect-host.mjs';
 import { connectEffectRemote } from './effect-remote.mjs';
 
 export async function measurementInstallation(rootPath, options = {}) {
@@ -21,7 +22,7 @@ export async function measurementInstallation(rootPath, options = {}) {
 export const crashSettlementDeadline = (policy, now = Date.now()) => new Date(now + 2 * (policy.perProbeTimeoutMs + 5000) + 86400000).toISOString();
 
 export class EffectCoordinator {
-  constructor({ root, base, remote, probe = runProbe, check = capabilities }) { Object.assign(this, { root, base, remote, probe, check }); }
+  constructor({ root, base, remote, probe = runProbe, check = capabilities, identify = workingSessionModel }) { Object.assign(this, { root, base, remote, probe, check, identify }); }
   async initialize() { await cleanExpired(this.base); }
   path(taskId) { if (!UUID.test(taskId)) throw new EffectError('invalid_task_id'); return join(this.base, taskId); }
   async state(taskId) {
@@ -30,24 +31,28 @@ export class EffectCoordinator {
     if (Date.parse(s.settlementExpiresAt ?? s.expiresAt) <= Date.now()) throw new EffectError('expired_preparation');
     return s;
   }
-  async prepare({ policy, brief, allowlist, excludePaths = [] }) {
+  async prepare({ policy, brief, allowlist, excludePaths = [], host }) {
     // Host fetched policy exactly once, before any exposure. OFF must not inspect/spawn CLI.
     if (policy?.enabled === false) return { status: 'skipped', reason: 'disabled' };
-    if (policy?.enabled !== true || policy.runner !== RUNNER || !/^claude-(haiku|sonnet|opus)-\d+(?:-\d+)+$/.test(policy.model ?? '')) throw new EffectError('runner_not_configured');
+    if (policy?.enabled !== true || policy.runner !== RUNNER) return { status: 'skipped', reason: 'unsupported_runner' };
+    const workingModel = await this.identify(host, this.root);
+    if (workingModel.status !== 'identified') return workingModel;
     validateBrief(brief);
     const dir = this.path(brief.taskId); await privateDir(dir);
     let state = await readJson(join(dir, 'state.json')).catch(e => { if (e.code !== 'ENOENT') throw e; return null; });
     if (state) {
+      if (state.workingModel?.model !== workingModel.model || state.workingModel?.modelSource !== 'working_session') throw new EffectError('task_conflict');
       if (state.briefSha256 !== hash(brief) || state.sourceSelectionHash !== hash({ allowlist, excludePaths })) throw new EffectError('task_conflict');
       if (Date.parse(state.expiresAt) <= Date.now()) throw new EffectError('expired_preparation');
       if (state.prepared) return { status: 'prepared', ...state.prepared, effectPreparationId: state.prepared.id };
       if (!state.prepareInput) throw new EffectError('incomplete_preparation', 'A prior snapshot attempt was interrupted. Do not recreate this task after exposure.');
     } else {
-      const runnerVersion = await this.check();
-      state = { taskId: brief.taskId, criterionIds: brief.criteria.map(c => c.id), brief, briefSha256: hash(brief), sourceSelectionHash: hash({ allowlist, excludePaths }), policy, runnerVersion, expiresAt: new Date(Date.now() + 86400000).toISOString() };
+      let runnerVersion;
+      try { runnerVersion = await this.check(); } catch (e) { if (e.code === 'unsupported_runner') return { status: 'skipped', reason: e.code }; throw e; }
+      state = { taskId: brief.taskId, criterionIds: brief.criteria.map(c => c.id), brief, briefSha256: hash(brief), sourceSelectionHash: hash({ allowlist, excludePaths }), policy: { ...policy, model: workingModel.model }, workingModel, runnerVersion, expiresAt: new Date(Date.now() + 86400000).toISOString() };
       await saveJson(join(dir, 'state.json'), state, true);
       state.snapshot = await freezeSnapshot(this.root, join(dir, 'snapshot'), allowlist, excludePaths);
-      state.prepareInput = { requestId: randomUUID(), brief, briefSha256: state.briefSha256, snapshot: state.snapshot, runner: RUNNER, runnerVersion, model: policy.model };
+      state.prepareInput = { requestId: randomUUID(), brief, briefSha256: state.briefSha256, snapshot: state.snapshot, runner: RUNNER, runnerVersion, model: workingModel.model, modelSource: workingModel.modelSource };
       await saveJson(join(dir, 'state.json'), state);
     }
     state.prepared = await this.remote.call('prepare_effect_measurement', state.prepareInput);
@@ -102,6 +107,7 @@ export class EffectCoordinator {
     const dir = this.path(taskId); let state = await this.state(taskId);
     if (!state.prepared) throw new EffectError('missing_preparation');
     if (state.policy.enabled !== true) return { status: 'skipped', reason: 'disabled' };
+    if (state.workingModel?.modelSource !== 'working_session') return { status: 'skipped', reason: 'working_model_unavailable' };
     const receipt = await readJson(join(dir, 'receipt.json')).catch(e => { if (e.code !== 'ENOENT') throw e; return null; });
     if (receipt) return { status: 'already_reported', requestId: receipt.requestId };
     const lock = join(dir, 'run-lock.json');

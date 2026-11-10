@@ -117,6 +117,18 @@ for (const client of ['codex', 'claude']) test(`${client}: generated hook execut
   await writeFile(npm, '#!/usr/bin/env node\nconsole.error("private child diagnostic"); process.exit(1);');
   const failed = await execute('/bin/sh', ['-c', hook], { cwd: f.root, env });
   assert.equal(failed.stdout, ''); assert.equal(failed.stderr, '');
+  if (client === 'claude') {
+    // A failed update must not erase host identity; forward hook stdin through the generated shell command.
+    const host = { session_id: '9472826c-b235-4ae5-87db-f4e0ca856ad4', transcript_path: join(f.base, '9472826c-b235-4ae5-87db-f4e0ca856ad4.jsonl') };
+    const captured = await new Promise((resolve, reject) => {
+      const child = execFile('/bin/sh', ['-c', hook], { cwd: f.root, env }, (error, stdout, stderr) => error ? reject(error) : resolve({ stdout, stderr }));
+      child.stdin.end(JSON.stringify(host));
+    });
+    const context = JSON.parse(captured.stdout).hookSpecificOutput.additionalContext;
+    assert.ok(context.includes(host.session_id)); assert.ok(context.includes(host.transcript_path));
+    assert.ok(!context.includes('updated to')); assert.equal(captured.stderr, '');
+  }
+
   // The update command also rejects a stale process after a newer installation.
   await writeFile(releasePath, JSON.stringify({ version: '999.0.0' }));
   await assert.rejects(updateSkills(f.root, f.options), /newer skill release is already installed/);

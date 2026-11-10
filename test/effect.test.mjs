@@ -16,18 +16,18 @@ const observation = () => { const o = new Observation(); o.accept({ type: 'resul
 async function fixture(t, overrides = {}) {
   const dir = await realpath(await mkdtemp(join(tmpdir(), 'effect-unit-'))); t.after(() => rm(dir, { recursive: true, force: true }));
   const root = join(dir, 'root'), base = join(dir, 'state'); await mkdir(root); await writeFile(join(root, 'source.txt'), 'setting alpha');
-  const calls = [], spawns = [];
+  const calls = [], spawns = []; let preparedModel = policy.model;
   const remote = { call: async (name, args) => {
     calls.push({ name, args: structuredClone(args) });
     if (overrides.remote) { const r = await overrides.remote(name, args); if (r !== undefined) return r; }
-    if (name === 'prepare_effect_measurement') return { id: randomUUID(), taskId: args.brief.taskId, policyRevision: 1, preparedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 86400000).toISOString() };
-    if (name === 'reserve_effect_measurement') return { status: 'reserved', reservation: { runId: randomUUID(), leaseToken: randomUUID(), firstArm: 'without_foundocs', policy, deliveredContext: [{ invocationId: randomUUID(), retrievalIds: [], text: 'setting alpha', sha256: hash('setting alpha') }], deliveredContextSha256: hash('context') } };
+    if (name === 'prepare_effect_measurement') { preparedModel = args.model; return { id: randomUUID(), taskId: args.brief.taskId, policyRevision: 1, preparedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 86400000).toISOString() }; }
+    if (name === 'reserve_effect_measurement') return { status: 'reserved', reservation: { runId: randomUUID(), leaseToken: randomUUID(), firstArm: 'without_foundocs', policy: { ...policy, model: preparedModel }, deliveredContext: [{ invocationId: randomUUID(), retrievalIds: [], text: 'setting alpha', sha256: hash('setting alpha') }], deliveredContextSha256: hash('context') } };
     if (name === 'control_effect_measurement') return { action: 'continue', policyRevision: 1 };
     if (name === 'report_effect_measurement') return { status: 'completed' };
   }};
-  const coordinator = new EffectCoordinator({ root, base, remote, check: async () => '2.1.312', probe: async input => {
+  const coordinator = new EffectCoordinator({ root, base, remote, identify: async () => ({ status: 'identified', model: policy.model, modelSource: 'working_session' }), check: async () => '2.1.312', probe: async input => {
     spawns.push(input); if (overrides.probe) return overrides.probe(input);
-    return { ...input.probe, status: 'completed', finishedAt: new Date().toISOString(), observation: observation(), isolationVerified: true, evidenceVerified: true, output: { outcome: 'acquired', criteria: [{ id: 'setting', satisfied: true, finding: 'alpha', evidence: [{ source: 'snapshot', reference: 'source.txt', quote: 'setting alpha' }] }], questions: [] } };
+    return { ...input.probe, status: 'completed', finishedAt: new Date().toISOString(), observation: { ...observation(), models: [input.policy.model] }, isolationVerified: true, evidenceVerified: true, output: { outcome: 'acquired', criteria: [{ id: 'setting', satisfied: true, finding: 'alpha', evidence: [{ source: 'snapshot', reference: 'source.txt', quote: 'setting alpha' }] }], questions: [] } };
   }});
   await coordinator.initialize(); return { dir, root, base, calls, spawns, coordinator };
 }
@@ -131,4 +131,51 @@ test('heartbeat failure stops running child and preserves partial tokens plus te
 
 test('unobserved crash settlement includes bounded execution allowance and is deterministic', () => {
   assert.equal(Date.parse(crashSettlementDeadline(policy, 0)), 86400000 + 2 * (60000 + 5000));
+});
+
+test('working model comes from current session, never the legacy policy or an override', async t => {
+  const { workingSessionModel } = await import('../src/effect-host.mjs');
+  const f = await fixture(t), sessionId = randomUUID(), transcriptPath = join(f.dir, `${sessionId}.jsonl`);
+  const host = { client: 'claude_code', sessionId, transcriptPath };
+  const event = model => ({ type: 'assistant', sessionId, cwd: f.root, timestamp: new Date().toISOString(), message: { model, content: [{ type: 'text', text: 'private conversation must not leave reader' }] } });
+  await writeFile(transcriptPath, [event('claude-haiku-5-5'), event('claude-sonnet-5')].map(JSON.stringify).join('\n') + '\n');
+  assert.deepEqual(await workingSessionModel(host, f.root), { status: 'identified', model: 'claude-sonnet-5', modelSource: 'working_session' });
+  f.coordinator.identify = workingSessionModel;
+  const b = brief();
+  await f.coordinator.prepare({ policy: { ...policy, model: 'claude-haiku-5-5' }, host, brief: b, allowlist: ['source.txt'] });
+  const preparation = f.calls.find(c => c.name === 'prepare_effect_measurement').args;
+  assert.equal(preparation.model, 'claude-sonnet-5');
+  assert.equal(preparation.modelSource, 'working_session');
+  assert.equal(JSON.stringify(preparation).includes('private conversation'), false);
+  assert.equal(JSON.stringify(preparation).includes('transcriptPath'), false);
+  const state = await readJson(join(f.base, b.taskId, 'state.json'));
+  assert.equal(state.policy.model, 'claude-sonnet-5');
+  assert.equal((await f.coordinator.run({ taskId: b.taskId, retrievalIds: [randomUUID()] })).status, 'reported');
+  assert.deepEqual(f.spawns.map(input => input.policy.model), ['claude-sonnet-5', 'claude-sonnet-5']);
+  assert.deepEqual(f.spawns.map(input => input.probe.model), ['claude-sonnet-5', 'claude-sonnet-5']);
+  // A later /model switch must not silently change an already prepared task.
+  await writeFile(transcriptPath, JSON.stringify(event('claude-opus-5')));
+  await assert.rejects(f.coordinator.prepare({ policy, host, brief: b, allowlist: ['source.txt'] }), { code: 'task_conflict' });
+  await writeFile(transcriptPath, JSON.stringify(event('claude-haiku-5-5')) + '\n{\"type\":\"assistant\"');
+  assert.equal((await workingSessionModel(host, f.root)).reason, 'working_model_unavailable');
+  assert.equal((await workingSessionModel({ ...host, transcriptPath: 42 }, f.root)).reason, 'working_model_unavailable');
+  for (const changed of [event('haiku'), { ...event('claude-sonnet-5'), sessionId: randomUUID() }, { ...event('claude-sonnet-5'), timestamp: new Date(0).toISOString() }]) {
+    await writeFile(transcriptPath, JSON.stringify(event('claude-haiku-5-5')) + '\n' + JSON.stringify(changed));
+    assert.equal((await workingSessionModel(host, f.root)).reason, 'working_model_unavailable');
+  }
+});
+
+test('missing session, Codex host, unavailable runner and OFF never launch a substitute model', async t => {
+  const { workingSessionModel } = await import('../src/effect-host.mjs');
+  const f = await fixture(t); f.coordinator.identify = workingSessionModel;
+  f.coordinator.check = () => { throw Error('must not inspect runner'); };
+  for (const [host, reason] of [[undefined, 'working_model_unavailable'], [{ client: 'codex' }, 'unsupported_runner'], [{ client: 'claude_code', model: policy.model }, 'working_model_unavailable']]) {
+    assert.deepEqual(await f.coordinator.prepare({ policy, host, brief: brief(), allowlist: ['source.txt'] }), { status: 'skipped', reason });
+  }
+  f.coordinator.identify = () => { throw Error('must not read metadata when OFF'); };
+  assert.deepEqual(await f.coordinator.prepare({ policy: { enabled: false } }), { status: 'skipped', reason: 'disabled' });
+  f.coordinator.identify = async () => ({ status: 'identified', model: policy.model, modelSource: 'working_session' });
+  f.coordinator.check = () => { throw new EffectError('unsupported_runner'); };
+  assert.deepEqual(await f.coordinator.prepare({ policy, brief: brief(), allowlist: ['source.txt'] }), { status: 'skipped', reason: 'unsupported_runner' });
+  assert.equal(f.calls.length, 0); assert.equal(f.spawns.length, 0);
 });
