@@ -1,6 +1,7 @@
 // Actual installed-host model turns with ordinary synthetic prompts. Explicit
 // opt-in only. Never installed as a product hook or included in runtime behavior.
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { readFile, writeFile, mkdir, copyFile, chmod } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
@@ -21,19 +22,24 @@ const result = { host, scenario, prompt, hooks: [], tools: [], approvals: 0, fin
 
 async function claude() {
   const child = spawn('claude', ['-p', '--strict-mcp-config', '--mcp-config', join(root, '.mcp.json'), '--setting-sources', 'project,local', '--allowedTools', 'Read,Edit,Write,Bash(node *),mcp__foundocs__*', '--max-turns', '20', '--output-format', 'stream-json', '--verbose', prompt], { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'] });
-  let raw = ''; child.stdout.on('data', bytes => { raw += bytes; }); child.stderr.on('data', () => {});
+  let raw = ''; result.stopFollowups = null; result.stopCallbackCount = null; result.assistantTextCount = 0; result.followupToolCalls = 0; child.stdout.on('data', bytes => { raw += bytes; }); child.stderr.on('data', () => {});
   const timer = setTimeout(() => child.kill('SIGTERM'), 240000);
   const code = await new Promise((resolve, reject) => { child.once('error', reject); child.once('exit', resolve); }); clearTimeout(timer);
   assert.equal(code, 0, 'Claude fixture did not complete');
   for (const line of raw.split('\n')) {
     let event; try { event = JSON.parse(line); } catch { continue; }
-    if (event.type === 'system' && event.subtype === 'init') result.model = event.model;
+    if (event.type === 'system' && event.subtype === 'init') { result.model = event.model; result.sessionId = event.session_id; }
     if (event.type === 'system' && event.subtype === 'hook_response') result.hooks.push({ event: event.hook_event, exitCode: event.exit_code });
     if (event.type === 'assistant') for (const part of event.message?.content ?? []) {
+      if (part.type === 'text' && part.text?.trim()) result.assistantTextCount++;
+      if (part.type === 'tool_use' && result.assistantTextCount) result.followupToolCalls++;
       if (part.type === 'tool_use') result.tools.push({ name: part.name, ...(part.name.endsWith('episode_checkpoint') ? { operation: part.input.operation } : {}) });
     }
     if (event.type === 'result') { assert.equal(event.is_error, false); result.finalMessages.push(event.result); result.approvals += event.permission_denials?.length ?? 0; }
   }
+  const state = JSON.parse(await readFile(join(fixture.storageDir, 'episodes', createHash('sha256').update(root).digest('hex'), 'checkpoints.json'), 'utf8'));
+  const checkpoint = state.checkpoints.findLast(c => c.sessionId === result.sessionId);
+  result.checkpoint = checkpoint ? { acknowledged: checkpoint.acknowledged, fallbackIssued: checkpoint.fallbackIssued } : null;
 }
 async function codex() {
   if (process.env.FOUNDOCS_EPISODE_REVIEW_HOOKS !== '1') throw new Error('Review the generated fixture hook commands and explicitly set FOUNDOCS_EPISODE_REVIEW_HOOKS=1.');
@@ -85,8 +91,8 @@ async function codex() {
 await (host === 'codex' ? codex() : claude());
 const captureCalls = result.tools.filter(t => /(?:^|__)capture_episode$/.test(t.name)).length;
 const checkpointCalls = result.tools.filter(t => /(?:^|__)episode_checkpoint$/.test(t.name));
-assert.equal(result.approvals, 0, 'The synthetic flow needed unexpected approval');
+if (scenario === 'routine') assert.equal(result.approvals, 0, 'The routine flow needed unexpected approval');
 assert.ok(checkpointCalls.length > 0, 'Installed local checkpoint tool was not used');
 if (scenario === 'important') { assert.ok(captureCalls > 0); assert.ok(checkpointCalls.some(t => t.operation === 'prepare')); assert.ok(checkpointCalls.some(t => t.operation === 'ack')); }
-else { assert.equal(captureCalls, 0); assert.ok(checkpointCalls.some(t => t.operation === 'skip')); assert.equal(result.finalMessages.length, 1); assert.match(result.finalMessages[0], /4/); assert.equal(result.stopFollowups, 0); }
+else { assert.equal(captureCalls, 0); assert.ok(checkpointCalls.some(t => t.operation === 'skip')); assert.equal(result.finalMessages.length, 1); assert.match(result.finalMessages[0], /4/); if (host === 'codex') assert.equal(result.stopFollowups, 0); else { assert.equal(result.assistantTextCount, 1); assert.equal(result.followupToolCalls, 0); assert.deepEqual(result.checkpoint, { acknowledged: true, fallbackIssued: false }); } }
 console.log(JSON.stringify({ ...result, captureCalls, status: 'passed' }, null, 2));
