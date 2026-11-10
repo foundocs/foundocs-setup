@@ -230,13 +230,17 @@ preserve the pinned MCP runtime. To opt an installer-owned portable runtime into
 this release, run the new package's explicit upgrade, then refresh skills:
 
 ```sh
-npx --yes @foundocs/foundocs-setup@0.3.19 upgrade-runtime --root /absolute/project
-npx --yes @foundocs/foundocs-setup@0.3.19 update-skills --root /absolute/project
+npx --yes @foundocs/foundocs-setup@0.3.20 upgrade-runtime --root /absolute/project
+npx --yes @foundocs/foundocs-setup@0.3.20 update-skills --root /absolute/project
 ```
 
 Legacy transports must first use the existing `migrate` flow. The upgrade checks
 the recorded transport, preserves foreign settings and credentials, journals its
-change, supports interrupted retry and the existing conflict-safe `rollback`.
+change and supports interrupted retry. Version 0.3.20 recognizes the environment
+list written by pre-episode portable runtimes, including 0.3.18; newer runtimes
+still require the episode opt-out environment variable. The existing
+conflict-safe `rollback` restores the original installation journal baseline,
+which can precede initial setup; it is not a runtime-only undo command.
 Reconnect MCP and review the exact new hook hashes afterward. Skill updates do
 not silently activate or upgrade the runtime. `doctor` reports runtime support
 and live/stale checkpoint locks separately from host verification. If a crashed
