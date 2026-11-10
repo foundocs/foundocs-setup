@@ -64,7 +64,7 @@ export function helperCommand(args, platform = process.platform) {
 // configured project at execution time, stop at Git boundaries, and guard its ID.
 export function sessionHookCommand(client, projectId) {
   const prefix = client === 'codex' ? '.agents' : '.claude';
-  const code = `const fs=require('node:fs'),p=require('node:path'),{spawnSync}=require('node:child_process');try{let r=fs.realpathSync(process.cwd());for(;;){const a=p.join(r,'foundocs.json'),b=p.join(r,'steerdocs.json');if(fs.existsSync(a)||fs.existsSync(b)){const c=JSON.parse(fs.readFileSync(fs.existsSync(a)?a:b,'utf8'));if(c.project_id!==${JSON.stringify(projectId)})break;spawnSync(process.execPath,[p.join(r,${JSON.stringify(prefix)},'skills/foundocs/scripts/session-start.mjs'),'--root',r],{cwd:r,stdio:['ignore','inherit','ignore'],timeout:55000});break;}if(fs.existsSync(p.join(r,'.git'))||p.dirname(r)===r)break;r=p.dirname(r);}}catch{}`;
+  const code = `const fs=require('node:fs'),p=require('node:path'),{spawnSync}=require('node:child_process');try{let r=fs.realpathSync(process.cwd());for(;;){const a=p.join(r,'foundocs.json'),b=p.join(r,'steerdocs.json');if(fs.existsSync(a)||fs.existsSync(b)){const c=JSON.parse(fs.readFileSync(fs.existsSync(a)?a:b,'utf8'));if(c.project_id!==${JSON.stringify(projectId)})break;spawnSync(process.execPath,[p.join(r,${JSON.stringify(prefix)},'skills/foundocs/scripts/session-start.mjs'),'--root',r],{cwd:r,stdio:['inherit','inherit','ignore'],timeout:55000});break;}if(fs.existsSync(p.join(r,'.git'))||p.dirname(r)===r)break;r=p.dirname(r);}}catch{}`;
   return helperCommand(['node', '-e', code]);
 }
 

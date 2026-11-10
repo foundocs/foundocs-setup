@@ -44,23 +44,33 @@ export async function autoUpdate(root, options = {}) {
   }
 }
 
-export async function sessionStart(args) {
+export async function sessionStart(args, hookInput = {}) {
   try {
     if (args.length !== 2 || args[0] !== '--root' || !isAbsolute(args[1])) return null;
     const root = await realpath(args[1]);
     const script = fileURLToPath(import.meta.url);
     if (!['.agents', '.claude'].some(client => script === join(root, client, 'skills/foundocs/scripts/session-start.mjs'))) return null;
     const result = await autoUpdate(root);
-    if (result.status !== 'updated') return null;
+    const isClaude = script.includes('/.claude/') || script.includes('\\.claude\\');
+    const host = isClaude && typeof hookInput.session_id === 'string' && /^[0-9a-f-]{36}$/.test(hookInput.session_id) && typeof hookInput.transcript_path === 'string' && isAbsolute(hookInput.transcript_path)
+      ? { client: 'claude_code', sessionId: hookInput.session_id, transcriptPath: hookInput.transcript_path } : null;
+    if (result.status !== 'updated' && !host) return null;
+    const context = [result.status === 'updated' ? `Foundocs skills updated to ${result.version}. Read the installed SKILL.md before using Foundocs; already loaded instructions may need a host reload.` : '', host ? `Foundocs effect measurement host session: ${JSON.stringify(host)}. Pass this host object to measure prepare; the installer reads only current model metadata. Never supply a guessed model.` : ''].filter(Boolean).join('\n');
     return { hookSpecificOutput: {
       hookEventName: 'SessionStart',
-      additionalContext: `Foundocs skills updated to ${result.version}. Read the installed SKILL.md before using Foundocs; already loaded instructions may need a host reload.`,
-      ...(script.includes('/.claude/') || script.includes('\\.claude\\') ? { reloadSkills: true } : {}),
+      additionalContext: context,
+      ...(isClaude && result.status === 'updated' ? { reloadSkills: true } : {}),
     } };
   } catch { return null; }
 }
 
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
-  const output = await sessionStart(process.argv.slice(2));
+  let hookInput = {};
+  if (!process.stdin.isTTY) {
+    const timer = setTimeout(() => process.stdin.destroy(), 500);
+    try { let raw = ''; for await (const chunk of process.stdin) { raw += chunk; if (raw.length > 1024 * 1024) { process.stdin.destroy(); throw new Error(); } } hookInput = JSON.parse(raw); } catch { /* No host metadata: update still works. */ }
+    finally { clearTimeout(timer); }
+  }
+  const output = await sessionStart(process.argv.slice(2), hookInput);
   if (output) process.stdout.write(`${JSON.stringify(output)}\n`);
 }

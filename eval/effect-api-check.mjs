@@ -21,7 +21,7 @@ try {
  const directory=join(storage,'projects',digest(root)),credentialPath=join(storage,'credentials',a.workspaceId,a.projectId,digest(root),'key.json'),attemptId=randomUUID();
  for(const path of [directory,dirname(credentialPath)])await mkdir(path,{recursive:true,mode:0o700});
  const identity={projectId:a.projectId,workspaceId:a.workspaceId,mcpUrl:`${f.origin}/mcp`,attemptId};
- await writeFile(credentialPath,JSON.stringify({...identity,value:a.key}),{mode:0o600});await writeFile(join(directory,'installation.json'),JSON.stringify({...identity,version:1,root,client:'codex',credentialPath}),{mode:0o600});
+ await writeFile(credentialPath,JSON.stringify({...identity,value:a.key}),{mode:0o600});await writeFile(join(directory,'installation.json'),JSON.stringify({...identity,version:1,root,client:'claude',credentialPath}),{mode:0o600});
  const env={...process.env,FOUNDOCS_SETUP_HOME:storage};
  async function command(action,input,extraEnv={}) { const child=spawn(process.execPath,[cli,'measure',action,'--root',root],{env:{...env,...extraEnv},cwd:root,stdio:['pipe','pipe','pipe']});let stdout='',stderr='';child.stdout.on('data',d=>stdout+=d);child.stderr.on('data',d=>stderr+=d);child.stdin.end(JSON.stringify(input));const status=await new Promise(resolve=>child.on('close',resolve));assert.ok(!stdout.includes(a.key)&&!stderr.includes(a.key));assert.equal(status,0,stderr);return JSON.parse(stdout); }
  const disabled=await call('get_effect_measurement_policy');assert.equal(disabled.enabled,false);
@@ -30,12 +30,16 @@ try {
  const doc=await call('create_doc',{kind:'document',category:null,path:'docs/setting.md',title:'Retry setting',tldr:'The retry setting is alpha.',bodyMarkdown:'The retry setting is alpha. The secret setting is beta.',created:'2026-11-03',tags:[],reason:'Synthetic fixture',requestId:randomUUID()});
  const irrelevant=await call('create_doc',{kind:'document',category:null,path:'docs/unrelated.md',title:'Unrelated',tldr:'A different topic.',bodyMarkdown:'A different topic.',created:'2026-11-03',tags:[],reason:'Synthetic fixture',requestId:randomUUID()});
  const current=await call('get_effect_measurement_policy');const {revision,...settings}=current;
- const response=await fetch(`${f.origin}/api/projects/${a.projectId}/effect-measurement/policy`,{method:'PUT',headers:{Cookie:a.cookie,Origin:f.origin,'Content-Type':'application/json','If-Match':`"${revision}"`},body:JSON.stringify({...settings,enabled:true,model:'claude-haiku-5-5',sampleRate:1,perProbeTimeoutMs:60000,perProbeMaxTurns:6,perProbeEstimatedUsdLimit:.10})});assert.equal(response.status,200);
+ const response=await fetch(`${f.origin}/api/projects/${a.projectId}/effect-measurement/policy`,{method:'PUT',headers:{Cookie:a.cookie,Origin:f.origin,'Content-Type':'application/json','If-Match':`"${revision}"`},body:JSON.stringify({...settings,enabled:true,model:null,sampleRate:1,perProbeTimeoutMs:60000,perProbeMaxTurns:6,perProbeEstimatedUsdLimit:.10})});assert.equal(response.status,200);
  const results=[];
  for(const field of ['retry','secret']){
   const policy=await call('get_effect_measurement_policy'),taskId=randomUUID();
   const brief={taskId,question:`What is the ${field} setting?`,knownContext:'',criteria:[{id:'setting',description:`Find the literal ${field} setting value from available sources.`}]};
-  const prep=await command('prepare',{policy,brief,allowlist:['source.txt']});assert.equal(prep.status,'prepared');
+  // Synthetic host metadata exercises transport; this is not actual host provenance evidence.
+  const sessionId=randomUUID(),transcriptPath=join(base,sessionId+'.jsonl');
+  await writeFile(transcriptPath,JSON.stringify({type:'assistant',sessionId,cwd:root,timestamp:new Date().toISOString(),message:{model:'claude-haiku-5-5'}})+'\n');
+  const host={client:'claude_code',sessionId,transcriptPath};
+  const prep=await command('prepare',{policy,host,brief,allowlist:['source.txt']});assert.equal(prep.status,'prepared');
   const tracking={taskId,effectPreparationId:prep.effectPreparationId};await call('get_project_context',{view:'index',...tracking});
   const retrievalIds=[];
   for(const [document,verdict]of [[doc,'beneficial'],[irrelevant,'not_beneficial']]){const read=await call('get_doc',{id:document.id,readId:randomUUID(),...tracking});for(const r of read.retrievals){retrievalIds.push(r.retrievalId);await call('report_retrieval_evaluation',{retrievalId:r.retrievalId,verdict,reason:'Synthetic information task',requestId:randomUUID()});}}
@@ -49,5 +53,5 @@ try {
   results.push({case:field,runId:state.reservation.runId,result:result.result,probes:probes.map(p=>({arm:p.arm,status:p.status,outcome:p.output?.outcome,observation:p.observation,isolationVerified:p.isolationVerified,evidenceVerified:p.evidenceVerified})),deliveredInvocations:state.reservation.deliveredContext.length,retrievals:retrievalIds.length});
  }
  const report=await(await a.ownerFetch(`/api/projects/${a.projectId}/effect-measurement/report`)).json();
- console.log(JSON.stringify({offProbeSpawns:0,results,total:report.total,daily:report.daily,questions:report.questions,fixture:'isolated PostgreSQL schema and real HTTP MCP + CLI',packagedCli:cli!==join(packageRoot,'src/cli.mjs')}));
+ console.log(JSON.stringify({offProbeSpawns:0,results,total:report.total,daily:report.daily,questions:report.questions,fixture:'synthetic host metadata, isolated PostgreSQL schema and real HTTP MCP + CLI',packagedCli:cli!==join(packageRoot,'src/cli.mjs')}));
 }finally{await f.close();await rm(base,{recursive:true,force:true});}
