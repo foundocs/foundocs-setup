@@ -211,8 +211,10 @@ discoveries, concrete blockers and milestones during ordinary work. Routine
 turns are acknowledged locally without creating remote candidates. Private
 checkpoint state contains only minimal identifiers; prepared requests contain
 brief evidence, never transcripts. The bounded outbox preserves the exact
-payload/requestId for uncertain retries (32 requests, 128 checkpoints, 14 days;
-cleanup on use). Stop can request one follow-up per checkpoint and never loops
+payload/requestId for uncertain retries (32 requests, 128 checkpoints, 14 days per prepared request;
+cleanup on use). Required checkpoint metadata remains until its pending requests
+settle/expire, at most 28 days after checkpoint creation; expired checkpoints
+cannot prepare new requests. Stop can request one follow-up per checkpoint and never loops
 on a failed write. There is no separate inference API or new model key.
 
 The local MCP `episode_checkpoint` tool runs bookkeeping inside the existing

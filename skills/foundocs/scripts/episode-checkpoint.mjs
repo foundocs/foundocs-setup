@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Local metadata/outbox only. Never reads a prompt, transcript, key, or remote endpoint.
+// Local metadata/outbox only. Never persists prompts/transcripts or reads keys/endpoints.
 import { constants } from 'node:fs';
 import { open, mkdir, lstat, readFile, realpath, rename, rm } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -52,7 +52,7 @@ async function locked(directory, action) {
 function prune(state, now) {
   state.outbox = state.outbox.filter(c => Number.isFinite(c.createdAt) && c.createdAt + TTL > now).slice(-MAX_OUTBOX);
   const needed = new Set(state.outbox.map(e => e.checkpoint));
-  const valid = state.checkpoints.filter(c => Number.isFinite(c.createdAt) && c.createdAt + TTL > now);
+  const valid = state.checkpoints.filter(c => Number.isFinite(c.createdAt) && (c.createdAt + TTL > now || needed.has(c.id)));
   const kept = valid.filter(c => needed.has(c.id));
   state.checkpoints = [...kept, ...valid.filter(c => !needed.has(c.id)).slice(-(MAX_CHECKPOINTS - kept.length))].sort((a, b) => a.createdAt - b.createdAt);
 
@@ -161,6 +161,7 @@ export async function episodeCheckpoint(command, rootPath, input, options = {}) 
           if (previous.inputHash !== hash(JSON.stringify(input.capture))) return { status: 'payload_conflict', requestId: previous.payload.requestId };
           output = { status: 'prepared', payload: previous.payload };
         } else {
+          if (checkpoint.createdAt + TTL <= now) return { status: 'checkpoint_expired' };
           if (state.outbox.length >= MAX_OUTBOX) return { status: 'outbox_full' };
           const payload = captureInput(input.capture, checkpoint, input.slot, config.project_id, now);
           if (Buffer.byteLength(JSON.stringify(payload)) > MAX_BYTES) unavailable();

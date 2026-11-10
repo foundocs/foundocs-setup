@@ -132,3 +132,26 @@ test('doctor episode diagnostics distinguish live/stale locks without touching q
   assert.equal(stale.status, 'stale_lock'); assert.equal(stale.lockPath, lockPath);
   assert.deepEqual(await f.state(), before);
 });
+
+test('a late-prepared outbox retains checkpoint metadata past checkpoint TTL for exact retry and ack', async t => {
+  const f = await fixture(t), created = (await f.state()).checkpoints[0].createdAt, day = 86400000;
+  const request = { checkpoint: f.checkpoint, slot: 'late', capture: draft() };
+  const first = await f.call('prepare', request, { now: created + 13 * day });
+  await f.call('hook', { hook_event_name: 'UserPromptSubmit', session_id: 'next-session', turn_id: 'next-turn' }, { now: created + 15 * day });
+  assert.ok((await f.state()).checkpoints.some(c => c.id === f.checkpoint));
+  assert.deepEqual((await f.call('prepare', request, { now: created + 15 * day })).payload, first.payload);
+  assert.equal((await f.call('prepare', { ...request, slot: 'new-after-expiry' }, { now: created + 15 * day })).status, 'checkpoint_expired');
+  const ack = await f.call('ack', { checkpoint: f.checkpoint, requestId: first.payload.requestId, result: { disposition: 'created', candidate: { id: candidateId } } }, { now: created + 15 * day });
+  assert.equal(ack.status, 'acknowledged');
+  assert.equal((await f.state()).outbox.length, 0);
+  assert.ok(!(await f.state()).checkpoints.some(c => c.id === f.checkpoint), 'unreferenced expired checkpoint is removed after ack');
+});
+
+test('late pending requests and retained checkpoint metadata expire together without extending request TTL', async t => {
+  const f = await fixture(t), created = (await f.state()).checkpoints[0].createdAt, day = 86400000;
+  await f.call('prepare', { checkpoint: f.checkpoint, slot: 'late', capture: draft() }, { now: created + 13 * day });
+  const expired = await f.call('pending', { checkpoint: f.checkpoint }, { now: created + 27 * day });
+  assert.equal(expired.status, 'checkpoint_unavailable');
+  assert.equal((await f.state()).outbox.length, 0);
+  assert.equal((await f.state()).checkpoints.length, 0);
+});
