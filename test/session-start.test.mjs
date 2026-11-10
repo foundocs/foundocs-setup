@@ -31,7 +31,9 @@ for (const client of ['codex', 'claude']) test(`${client}: install/update preser
   await install(f.root, f.input, f.options);
   const config = JSON.parse(await readFile(f.hookFile, 'utf8'));
   assert.deepEqual(config.permissions, f.original.permissions);
-  assert.deepEqual(config.hooks.Stop, f.original.hooks.Stop);
+  assert.deepEqual(config.hooks.Stop[0], f.original.hooks.Stop[0]);
+  assert.equal(config.hooks.Stop.length, 2);
+  assert.equal(config.hooks.UserPromptSubmit.length, 1);
   assert.deepEqual(config.hooks.SessionStart[0], f.original.hooks.SessionStart[0]);
   assert.equal(config.hooks.SessionStart.length, 2);
   const handler = config.hooks.SessionStart[1].hooks[0];

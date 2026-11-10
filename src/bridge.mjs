@@ -6,7 +6,8 @@ import { Server, ProtocolError, ProtocolErrorCode } from '@modelcontextprotocol/
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 import { readCredential } from './auth.mjs';
 import { pathToFileURL } from 'node:url';
-import { resolve } from 'node:path';
+import { resolve, dirname } from 'node:path';
+import { episodeCheckpoint } from '../skills/foundocs/scripts/episode-checkpoint.mjs';
 
 // Forward only a stable category and safe context, never raw remote messages or data.
 function requestError(error, name) {
@@ -45,8 +46,18 @@ function requestError(error, name) {
     { code, retryable, ...(tool ? { tool } : {}), ...(httpStatus !== undefined ? { httpStatus } : {}), ...(remoteCode !== undefined ? { remoteCode } : {}) });
 }
 
-export async function runBridge({ credentialPath, projectId, workspaceId, mcpUrl: endpoint }) {
-let remote, local;
+export async function runBridge({ credentialPath, projectId, workspaceId, mcpUrl: endpoint, root, client }) {
+let remote, local, checkpointRoute = 'remote', checkpointWasLocal = false;
+const checkpointTool = {
+  name: 'episode_checkpoint',
+  description: 'Local installer checkpoint bookkeeping, not remote capture. Use the ID delivered by the trusted UserPromptSubmit/Stop hook. Routine turns: skip only. Important event: prepare persists an exact private payload, call remote capture_episode with returned payload, then ack the successful result. Pending returns at most 3 exact retries. Never use this as semantic evidence or put transcripts/secrets in capture. No model/network invocation; failures never block the primary task.',
+  inputSchema: { type: 'object', additionalProperties: false, required: ['project_id', 'operation', 'checkpoint'], properties: {
+    project_id: { type: 'string', format: 'uuid' }, operation: { type: 'string', enum: ['prepare', 'ack', 'skip', 'pending', 'discard'] },
+    checkpoint: { type: 'string', maxLength: 200 }, slot: { type: 'string', pattern: '^[a-z0-9_-]{1,40}$' },
+    capture: { type: 'object' }, requestId: { type: 'string', format: 'uuid' }, result: { type: 'object' },
+  } },
+  annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false, idempotentHint: false },
+};
 async function close() {
   await remote?.close().catch(() => {});
   await local?.close().catch(() => {});
@@ -66,11 +77,45 @@ try {
   await remote.connect(transport, { timeout: 20000 });
   local = new Server({ name: 'foundocs', version: '0.2.0' }, { capabilities: { tools: {} }, instructions: remote.getInstructions() });
   local.setRequestHandler('tools/list', async (request) => {
-    try { return await remote.listTools(request.params); }
+    try {
+      // Assemble a bounded complete inventory before adding a local name. Never
+      // infer absence from the first remote page or shadow a later-page tool.
+      const tools = [], seen = new Set(); let cursor;
+      for (let page = 0; page < 20; page++) {
+        const result = await remote.listTools(cursor ? { cursor } : undefined);
+        tools.push(...result.tools);
+        if (tools.length > 2000) throw new Error('tool inventory exceeds bound');
+        if (!result.nextCursor) {
+          const collision = tools.some(tool => tool.name === checkpointTool.name);
+          const supported = !!root && ['codex', 'claude'].includes(client) && tools.some(tool => tool.name === 'capture_episode') && !collision;
+          checkpointRoute = supported ? 'local' : checkpointWasLocal ? 'blocked' : 'remote';
+          if (supported) { checkpointWasLocal = true; tools.push(checkpointTool); }
+          // Once advertised locally, this name can never start forwarding private
+          // checkpoint payloads to a changing remote inventory.
+          return { tools: checkpointRoute === 'blocked' ? tools.filter(tool => tool.name !== checkpointTool.name) : tools };
+        }
+        if (seen.has(result.nextCursor)) throw new Error('tool cursor loop');
+        seen.add(result.nextCursor); cursor = result.nextCursor;
+      }
+      throw new Error('tool inventory exceeds page bound');
+    }
     catch (error) { throw requestError(error, 'tools_list'); }
   });
   local.setRequestHandler('tools/call', async (request) => {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(request.params.arguments?.project_id)) throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'Read and pass the explicit project_id from the governing foundocs.json.');
+    if (checkpointRoute !== 'remote' && request.params.name === checkpointTool.name) {
+      const args = request.params.arguments;
+      if (args.project_id !== projectId) throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'Local checkpoint project differs from this installation.');
+      let data;
+      try {
+        if (checkpointRoute !== 'local' || !['prepare', 'ack', 'skip', 'pending', 'discard'].includes(args.operation)) throw new Error();
+        // Credential layout is validated by resolveRuntime; use that same private base.
+        const storageDir = dirname(dirname(dirname(dirname(dirname(credentialPath)))));
+        data = await episodeCheckpoint(args.operation, root, args, { client, storageDir, projectId });
+      } catch { data = { status: 'unavailable' }; }
+      const response = { ok: true, data };
+      return { structuredContent: response, content: [{ type: 'text', text: JSON.stringify(response) }], isError: false };
+    }
     try { return await remote.callTool(request.params); }
     catch (error) { throw requestError(error, request.params.name); }
   });
