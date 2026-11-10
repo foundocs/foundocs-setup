@@ -162,6 +162,15 @@ export function evaluateTrace(fixture, trace) {
     const id = fixture.knowledge?.[index]?.id;
     check(Boolean(id) && proposedPathMoves.has(id), `Required path-only move for source ${index} was not proposed.`);
   }
+  // Fixture-specific semantic expectations, keyed by row so seeded UUIDs can change.
+  for (const index of constraints.requiredArchiveIndexes ?? []) {
+    const source = fixture.knowledge?.[index];
+    check(source && seenMutations.some(m => m.type === 'archive' && m.contentId === source.id), 'Required low-reuse archive was not proposed.');
+  }
+  for (const index of constraints.forbiddenArchiveIndexes ?? []) {
+    const source = fixture.knowledge?.[index];
+    check(source && !seenMutations.some(m => ['archive', 'importance'].includes(m.type) && m.contentId === source.id), 'Useful knowledge must not be archived or reduced in importance.');
+  }
   if (constraints.maxCandidates !== undefined) check(candidateCount <= constraints.maxCandidates, 'Proposal count was inflated.');
   if (!constraints.noCalls && !constraints.noRun) check(finished, 'No server-confirmed finish.');
   if (trace.final) {

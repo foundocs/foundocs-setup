@@ -95,6 +95,8 @@ try {
         await call('get_doc', { id: target.id, readId })
         await call('report_retrieval_evaluation', { retrievalId: read.retrievals[0].retrievalId, verdict, reason: verdict === 'beneficial' ? 'Useful historical recovery context' : 'This task requires the active channel, not the retired preview.', requestId: randomUUID() })
       }
+      const incidentalBody = 'The delivered one-time screenshot used the third browser tab to the left of the second. This records only the temporary arrangement; no reusable procedure or product decision depended on it.'
+      const incidental = await call('create_doc', { kind: 'knowledge', category: 'learnings', path: 'knowledge/learnings/incidental.md', title: 'Completed screenshot arrangement', tldr: 'Temporary one-time arrangement', tags: [], created: '2026-11-10', bodyMarkdown: incidentalBody, reason: 'Low future reuse fixture', requestId: randomUUID() })
       const run = (await call('dream_memory', { action: 'begin', requestId: randomUUID(), agentName: 'Archive package fixture', promptVersion: 'dreaming-v1' })).run
       const candidates = await call('get_archive_candidates', { runId: run.id })
       const review = candidates.items.find((i: any) => i.contentId === target.id)
@@ -110,19 +112,28 @@ try {
       const change = proposed.changes[0]
       assert.equal(change.status, 'proposed'); assert.equal(change.autoApplied, false)
       assert.ok(change.archiveReview.targets[0].counts.beneficial >= 1)
+      assert.ok(!candidates.items.some((i: any) => i.contentId === incidental.id), 'No negative ratings: absent from the retrieval shortlist')
+      const incidentalRead = await call('get_doc', { id: incidental.id })
+      const incidentalRef = { contentId: incidental.id, versionToken: incidentalRead.versionToken }
+      const lowReuse = await call('dream_memory', { action: 'submit', requestId: randomUUID(), runId: run.id, leaseGeneration: run.leaseGeneration, candidates: [{ candidateId: randomUUID(), stages: [6], title: 'Archive incidental arrangement', reason: 'Factually correct but limited to a delivered one-time screenshot, with no reusable procedure or decision. No historical audit or recovery use is identified.', impact: 'Exclude default retrieval; preserve history and restoration.', targets: [incidentalRef], evidence: [{ ...incidentalRef, location: 'body', excerpt: incidentalRead.bodyMarkdown }], mutations: [{ type: 'archive', contentId: incidental.id }], dependsOn: [], alternatives: ['Retain if audit context needs this arrangement'], uncertainty: [], requestedDisposition: 'review_candidate' }] })
+      const lowReuseChange = lowReuse.changes.find((c: any) => c.mutations.some((m: any) => m.contentId === incidental.id))
+      assert.equal(lowReuseChange.status, 'proposed'); assert.equal(lowReuseChange.autoApplied, false)
+      assert.equal(lowReuseChange.archiveReview.targets[0].counts.notBeneficial, 0)
+      assert.deepEqual(lowReuseChange.archiveReview.retrievalEvidence, [])
+      assert.equal((await call('get_doc', { id: incidental.id })).memoryStatus, 'active')
       const wrong = await invoke('approve_archive_proposal', { runId: run.id, changeId: change.id, revision: change.revision + 1, hash: change.hash, requestId: randomUUID(), approval: { source: 'human_chat', text: 'Approve this fixture proposal.' } })
       assert.equal(wrong.ok, false)
       assert.equal((await call('get_doc', { id: target.id })).memoryStatus, 'active')
       const bypass = await invoke('set_content_status', { items: [ref(current)], memoryStatus: 'archived', reason: 'Forbidden Dreaming bypass fixture', requestId: randomUUID() })
       assert.equal(bypass.error.code, 'DREAMING_WRITE_REQUIRED')
       await call('dream_memory', { action: 'finish', requestId: randomUUID(), runId: run.id, leaseGeneration: run.leaseGeneration, status: 'partial', summary: 'Archive integration checked; no real human approval was supplied. Review remains pending.' })
-      assert.equal((await call('get_dream', { runId: run.id })).run.pendingReviewCount, 1)
+      assert.equal((await call('get_dream', { runId: run.id })).run.pendingReviewCount, 2)
       // Invalid arguments and a forbidden project still pass through SDK/bridge safely.
       const invalid = await invoke('set_content_status', { ...args, items: [], requestId: randomUUID() })
       assert.equal(invalid.ok, false)
       assert.ok(!JSON.stringify(invalid).includes(account.key))
       assert.ok(!stderr.includes(account.key) && !stderr.includes(code))
-      console.log(JSON.stringify({ client, mode, tarballRuntime: 'PASS', dynamicSchemas: 'PASS', archiveRestoreUndo: 'PASS', atomicConflictAndLegacy: 'PASS', evaluatedCandidateAndPendingReview: 'PASS', automaticArchive: false, modelQualityVerified: false }))
+      console.log(JSON.stringify({ client, mode, tarballRuntime: 'PASS', dynamicSchemas: 'PASS', archiveRestoreUndo: 'PASS', atomicConflictAndLegacy: 'PASS', evaluatedCandidateAndPendingReview: 'PASS', lowFutureReuseWithoutRatings: 'PASS', automaticArchive: false, modelQualityVerified: false }))
     } finally { await sdk.close() }
   }
 } finally { await fixture.close() }
