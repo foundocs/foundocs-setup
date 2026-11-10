@@ -11,14 +11,16 @@ export function skillDirectory(client) {
 export function knowledgePolicy(client) {
   return readFileSync(new URL('../templates/knowledge-policy.md', import.meta.url), 'utf8')
     .replaceAll('{{SKILL_PATH}}', `${skillDirectory(client)}/SKILL.md`)
+    .replaceAll('{{EPISODE_SKILL_PATH}}', `${skillDirectory(client).slice(0, -SKILL_NAME.length)}foundocs-capture-episode/SKILL.md`)
     .replaceAll('{{FOUNDOCS_SKILL_PATH}}', `${skillDirectory(client).slice(0, -SKILL_NAME.length)}foundocs/SKILL.md`).trim();
 }
 
 export function skillAssets(client) {
   const prefix = skillDirectory(client).slice(0, -SKILL_NAME.length);
   return [
+    ...['SKILL.md', 'references/capture.md'].map(name => ({ name: `foundocs-capture-episode/${name}` })),
     ...SKILL_FILES.map(name => ({ name: `${SKILL_NAME}/${name}` })),
-    ...['SKILL.md', 'references/configuration.md', 'references/documents.md', 'references/dreaming.md', 'references/updates.md', 'references/effect-measurement.md', 'scripts/check-update.mjs', 'scripts/session-start.mjs'].map(name => ({ name: `foundocs/${name}` })),
+    ...['SKILL.md', 'references/configuration.md', 'references/documents.md', 'references/dreaming.md', 'references/updates.md', 'references/effect-measurement.md', 'scripts/check-update.mjs', 'scripts/session-start.mjs', 'scripts/episode-checkpoint.mjs'].map(name => ({ name: `foundocs/${name}` })),
   ].map(({ name }) => ({
     name: `${prefix}${name}`,
     content: readFileSync(new URL(`../skills/${name}`, import.meta.url), 'utf8'),

@@ -195,3 +195,73 @@ The initial verified probe runner is Claude Code 2.1.312 on macOS, with an exist
 Raw local data expires at preparation +24h; normalized settlement data has its own finite completion +24h lifetime. Expired raw data cannot be restored by a concurrent journal write. Uncertain report transmission retries the same requestId and payload without repeating model inference. Raw CLI transcripts are not stored by default.
 
 Maintainers can run the opt-in synthetic checks with `FOUNDOCS_EFFECT_LIVE_CHECK=1`: `node eval/effect-isolation-check.mjs` checks actual filesystem tool boundaries; `eval/effect-api-check.mjs`, executed using the product checkout's tsx runner with `FOUNDOCS_PRODUCT_DIR` and optional `FOUNDOCS_EFFECT_CLI`, uses its isolated PostgreSQL/HTTP fixture. These checks incur provider usage, never enable a production project, and remove their temporary fixtures.
+
+### Automatic selective episodes (0.3.19)
+
+New Codex and Claude Code installs include `foundocs-capture-episode`, a
+`UserPromptSubmit` checkpoint and a bounded `Stop` fallback. Review and trust the
+installed hook definitions through the host (Codex `/hooks` or desktop hook
+review; Claude Code project hook/settings review). The installer never changes
+host trust, approvals or sandbox settings. Confirm actual hook execution and
+remote `capture_episode` plus local `episode_checkpoint` tool discovery after
+reconnecting; installed files alone do not prove activation.
+
+The current host judges important confirmed decisions, verified results and
+discoveries, concrete blockers and milestones during ordinary work. Routine
+turns are acknowledged locally without creating remote candidates. Private
+checkpoint state contains only minimal identifiers; prepared requests contain
+brief evidence, never transcripts. The bounded outbox preserves the exact
+payload/requestId for uncertain retries (32 requests, 128 checkpoints, 14 days;
+cleanup on use). Stop can request one follow-up per checkpoint and never loops
+on a failed write. There is no separate inference API or new model key.
+
+The local MCP `episode_checkpoint` tool runs bookkeeping inside the existing
+stdio process, so ordinary capture needs no extra shell filesystem access.
+It is available only with the new portable runtime and a server advertising
+`capture_episode`. The server's episode tools still handle all remote writes.
+POSIX private storage is supported; Windows currently skips checkpoint capture.
+Unsupported/missing tools and failures preserve ordinary work and never turn
+an episode into a document. Document consent and Dreaming consent are unchanged.
+
+**Existing installations:** `update-skills` and SessionStart updates deliberately
+preserve the pinned MCP runtime. To opt an installer-owned portable runtime into
+this release, run the new package's explicit upgrade, then refresh skills:
+
+```sh
+npx --yes @foundocs/foundocs-setup@0.3.19 upgrade-runtime --root /absolute/project
+npx --yes @foundocs/foundocs-setup@0.3.19 update-skills --root /absolute/project
+```
+
+Legacy transports must first use the existing `migrate` flow. The upgrade checks
+the recorded transport, preserves foreign settings and credentials, journals its
+change, supports interrupted retry and the existing conflict-safe `rollback`.
+Reconnect MCP and review the exact new hook hashes afterward. Skill updates do
+not silently activate or upgrade the runtime. `doctor` reports runtime support
+and live/stale checkpoint locks separately from host verification. If a crashed
+helper leaves a stale lock, confirm its process has ended and remove only the
+reported lock; preserve the outbox and credentials.
+
+Opt out without editing managed hooks/skills by adding
+`"episodes": {"enabled": false}` to `foundocs.json`, or launch the host with
+`FOUNDOCS_EPISODES=off`. Deleting/modifying managed hooks is treated as an update
+conflict; other hooks and user-edited skills remain preserved.
+
+For opt-in live package validation, `eval/episode-host-check.mjs` (run with Bun)
+installs a `.tgz` into isolated projects backed by the product HTTP/PostgreSQL
+fixture. Supply `FOUNDOCS_EPISODE_LIVE=1`, `FOUNDOCS_PRODUCT_DIR`,
+`FOUNDOCS_EPISODE_PACKAGE`, and the test database URL. It never edits host trust.
+Review the generated project in each actual host, perform an ordinary task and
+a trivial lookup, then send `verify` to inspect persisted episodes. This fixture
+is separate from deterministic unit tests and does not claim model execution
+merely because installation succeeded.
+
+After starting that fixture, `eval/episode-host-run.mjs` runs an ordinary model
+turn and asserts the observed tool path. Set `FOUNDOCS_EPISODE_CLIENT` to
+`codex` or `claude`, and `FOUNDOCS_EPISODE_CASE` to `important` or `routine`.
+Codex additionally requires an explicit `FOUNDOCS_EPISODE_MODEL` and
+`FOUNDOCS_EPISODE_REVIEW_HOOKS=1` after reviewing the generated commands. This
+opt-in test uses the host's exact-hash hook review RPC in an isolated temporary
+CODEX_HOME, with workspace-write and on-request approvals. It never alters the
+real user configuration. Claude uses project/local settings and a scoped tool
+allowlist, with no permission bypass. `eval/episode-api-check.mjs` separately
+checks scripted API scenarios; those are not reported as host model evidence.

@@ -1,0 +1,134 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, realpath, symlink } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { episodeCheckpoint, episodeDiagnostics } from '../skills/foundocs/scripts/episode-checkpoint.mjs';
+import { install, updateSkills, rollback } from '../src/setup.mjs';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+const execute = promisify(execFile);
+const projectId = '8e68aeb1-3a40-454f-a74d-672307e12a37', workspaceId = '411212ef-b143-4cba-8411-5a7d48b616de';
+const candidateId = 'ea6245dd-8456-4ed1-81f2-c060e119b72d';
+async function fixture(t, client = 'codex') {
+  const base = await realpath(await mkdtemp(join(tmpdir(), 'foundocs-episodes-')));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const root = join(base, "project ' $(literal) 한글"), storageDir = join(base, 'private');
+  await mkdir(root); await writeFile(join(root, 'foundocs.json'), JSON.stringify({ project_id: projectId }));
+  const options = { client, storageDir };
+  const call = (command, input, extra = {}) => episodeCheckpoint(command, root, input, { ...options, ...extra });
+  const hook = (event, extra = {}) => call('hook', { session_id: 'session-one', turn_id: 'turn-one', hook_event_name: event, ...extra });
+  const start = await hook('UserPromptSubmit', { prompt: 'SECRET_USER_PROMPT_MUST_NOT_PERSIST', transcript_path: '/private/not-read' });
+  const checkpoint = start.hookSpecificOutput.additionalContext.match(/checkpoint: ([^.]+)\./)[1];
+  const directory = join(storageDir, 'episodes', (await readdir(join(storageDir, 'episodes')))[0]);
+  const state = () => readFile(join(directory, 'checkpoints.json'), 'utf8').then(JSON.parse);
+  return { base, root, storageDir, call, hook, checkpoint, state, directory };
+}
+function draft(kind = 'milestone') {
+  return { event: { taskKey: 'TASK-1', boundaryKey: 'implementation', kind, observation: 'Focused test passed.', evidence: [{ kind: 'verification', sourceRef: 'test:one', label: 'Focused test', detail: 'Passed.' }], links: [] }, judgment: { significance: 'important', novelty: 'new', grounding: 'confirmed', outcome: 'partial', reason: 'Reviewable milestone', evidenceRefs: ['test:one'] }, episode: { title: 'Ready for review', summary: ['The focused test passes.', 'Review remains.'], kind, status: 'in_progress', tags: [], remainingWork: 'Review' }, expectedEpisodeVersion: 0 };
+}
+for (const client of ['codex', 'claude']) test(`${client}: minimal checkpoints, routine skip and exactly one Stop continuation`, async t => {
+  const f = await fixture(t, client);
+  assert.doesNotMatch(JSON.stringify(await f.state()), /SECRET_USER_PROMPT|transcript|not-read/);
+  const stop = await f.hook('Stop');
+  if (client === 'codex') assert.equal(stop.decision, 'block');
+  else assert.equal(stop.hookSpecificOutput.hookEventName, 'Stop');
+  assert.equal(await f.hook('Stop'), null);
+  assert.equal(await f.hook('Stop', { stop_hook_active: true }), null);
+  if (client === 'codex') assert.equal(await f.hook('UserPromptSubmit', { turn_id: 'continuation', prompt: stop.reason }), null);
+  await f.call('skip', { checkpoint: f.checkpoint });
+  assert.equal((await f.state()).outbox.length, 0);
+  assert.equal(await f.hook('Stop'), null);
+  assert.equal(await f.hook('Stop', { session_id: 'another-session' }), null);
+});
+test('persist original payload before any call; uncertain retry is exact and acknowledged once', async t => {
+  const f = await fixture(t), input = { checkpoint: f.checkpoint, slot: 'milestone', capture: draft() };
+  const first = await f.call('prepare', input);
+  assert.equal(first.status, 'prepared');
+  assert.equal(first.payload.project_id, projectId);
+  assert.equal(first.payload.event.sourceEventId, `host:${f.checkpoint}:milestone`);
+  assert.deepEqual((await f.call('prepare', input)).payload, first.payload);
+  assert.deepEqual((await f.call('pending', { checkpoint: f.checkpoint })).items[0].payload, first.payload);
+  assert.equal(await f.hook('Stop'), null, 'soft failure never forces another continuation');
+  const changed = structuredClone(input); changed.capture.episode.title = 'Changed';
+  assert.equal((await f.call('prepare', changed)).status, 'payload_conflict');
+  await f.call('ack', { checkpoint: f.checkpoint, requestId: first.payload.requestId, result: { disposition: 'created', candidate: { id: candidateId } } });
+  assert.equal((await f.state()).outbox.length, 0);
+  assert.equal((await f.call('prepare', input)).status, 'already_acknowledged');
+  assert.equal((await f.state()).outbox.length, 0);
+});
+test('keeps pending checkpoints beyond 128 turns, bounds queue and expires private payloads', async t => {
+  const f = await fixture(t);
+  const first = await f.call('prepare', { checkpoint: f.checkpoint, slot: 'old', capture: draft() });
+  for (let i = 0; i < 140; i++) await f.hook('UserPromptSubmit', { turn_id: `turn-${i}` });
+  assert.equal((await f.state()).checkpoints.length, 128);
+  assert.ok((await f.state()).checkpoints.some(c => c.id === f.checkpoint));
+  for (let i = 0; i < 31; i++) await f.call('prepare', { checkpoint: f.checkpoint, slot: `item-${i}`, capture: draft() });
+  assert.equal((await f.call('prepare', { checkpoint: f.checkpoint, slot: 'too-many', capture: draft() })).status, 'outbox_full');
+  await f.call('ack', { checkpoint: f.checkpoint, requestId: first.payload.requestId, result: { disposition: 'deferred', candidate: { id: candidateId } } });
+  assert.equal((await f.state()).outbox.length, 31);
+  await f.call('hook', { session_id: 'session-one', turn_id: 'future', hook_event_name: 'UserPromptSubmit' }, { now: Date.now() + 15 * 86400000 });
+  assert.equal((await f.state()).outbox.length, 0);
+});
+test('deferred reassessment preserves candidate CAS and correction/new boundary metadata', async t => {
+  const f = await fixture(t);
+  const capture = { ...draft(), candidateId, expectedCandidateVersion: 2, expectedEpisodeVersion: 3, correction: true }; delete capture.event;
+  const result = await f.call('prepare', { checkpoint: f.checkpoint, slot: 'reassess', capture });
+  assert.equal(result.payload.candidateId, candidateId); assert.equal(result.payload.event, undefined);
+  assert.equal(result.payload.expectedCandidateVersion, 2); assert.equal(result.payload.correction, true);
+  const later = draft(); later.event.boundaryKey = 'release'; later.episode.previousEpisodeId = candidateId;
+  assert.equal((await f.call('prepare', { checkpoint: f.checkpoint, slot: 'later', capture: later })).payload.episode.previousEpisodeId, candidateId);
+});
+test('opt-out, unsupported hosts, lock contention and unsafe storage fail without remote calls', async t => {
+  const f = await fixture(t);
+  await writeFile(join(f.root, 'foundocs.json'), JSON.stringify({ project_id: projectId, episodes: { enabled: false } }));
+  assert.equal((await f.hook('Stop')).status, 'disabled');
+  await writeFile(join(f.root, 'foundocs.json'), JSON.stringify({ project_id: projectId }));
+  assert.equal((await f.call('skip', {}, { client: 'unsupported' })).status, 'unsupported_host');
+  await writeFile(join(f.directory, 'checkpoint.lock'), '999999', { mode: 0o600 });
+  await assert.rejects(f.hook('Stop'), { code: 'EEXIST' });
+  await rm(join(f.directory, 'checkpoint.lock'));
+  await rm(join(f.directory, 'checkpoints.json'));
+  const target = join(f.base, 'foreign'); await writeFile(target, '{"secret":"never-read"}');
+  await symlink(target, join(f.directory, 'checkpoints.json'));
+  await assert.rejects(f.hook('Stop'));
+  assert.equal(await readFile(target, 'utf8'), '{"secret":"never-read"}');
+});
+for (const client of ['codex', 'claude']) test(`${client}: generated real hook executes; edited hooks/skills conflict and rollback preserves foreign hooks`, async t => {
+  const f = await fixture(t, client);
+  const hookFile = join(f.root, client === 'codex' ? '.codex/hooks.json' : '.claude/settings.json');
+  await mkdir(join(f.root, client === 'codex' ? '.codex' : '.claude'));
+  const original = { hooks: { Stop: [{ hooks: [{ type: 'command', command: 'echo foreign' }] }] } };
+  await writeFile(hookFile, JSON.stringify(original));
+  const options = { storageDir: f.storageDir, probeClient: async () => ({}), diagnose: async () => ({}), fetch: async () => Response.json({ value: 'private_fixture_key', projectId, workspaceId }) };
+  await install(f.root, { version: 1, client, projectId, workspaceId, attemptId: candidateId, code: 'private_one_time_fixture', exchangeUrl: 'https://example.test/exchange', mcpUrl: 'https://example.test/mcp' }, options);
+  const config = JSON.parse(await readFile(hookFile, 'utf8'));
+  const inputPath = join(f.base, 'hook-input.json');
+  await writeFile(inputPath, JSON.stringify({ hook_event_name: 'UserPromptSubmit', session_id: 'installed-session', turn_id: 'installed-turn' }));
+  const { stdout } = await execute('/bin/sh', ['-c', `${config.hooks.UserPromptSubmit[0].hooks[0].command} < '${inputPath}'`], { cwd: f.root, env: { ...process.env, FOUNDOCS_SETUP_HOME: f.storageDir } });
+  assert.match(JSON.parse(stdout).hookSpecificOutput.additionalContext, /Foundocs episode checkpoint/);
+  assert.deepEqual((await updateSkills(f.root, options)).changedFiles, []);
+  config.hooks.Stop[1].hooks[0].timeout = 99; await writeFile(hookFile, JSON.stringify(config));
+  await assert.rejects(updateSkills(f.root, options), /Stop hook was modified/);
+  config.hooks.Stop[1].hooks[0].timeout = 5; await writeFile(hookFile, `${JSON.stringify(config, null, 2)}\n`);
+  const skill = join(f.root, client === 'codex' ? '.agents' : '.claude', 'skills/foundocs-capture-episode/SKILL.md');
+  const before = await readFile(skill, 'utf8'); await writeFile(skill, `${before}\nMy edits\n`);
+  await assert.rejects(updateSkills(f.root, options), /skill file is unowned or modified/);
+  await writeFile(skill, before);
+  assert.equal((await rollback(f.root, options)).ok, true);
+  assert.deepEqual(JSON.parse(await readFile(hookFile, 'utf8')), original);
+});
+
+test('doctor episode diagnostics distinguish live/stale locks without touching queued payloads', async t => {
+  const f = await fixture(t);
+  await f.call('prepare', { checkpoint: f.checkpoint, slot: 'pending', capture: draft() });
+  assert.equal((await episodeDiagnostics(f.root, { storageDir: f.storageDir })).pendingCount, 1);
+  const lockPath = join(f.directory, 'checkpoint.lock');
+  const before = await f.state();
+  await writeFile(lockPath, String(process.pid), { mode: 0o600 });
+  assert.equal((await episodeDiagnostics(f.root, { storageDir: f.storageDir })).status, 'busy');
+  await writeFile(lockPath, '2147483647', { mode: 0o600 });
+  const stale = await episodeDiagnostics(f.root, { storageDir: f.storageDir });
+  assert.equal(stale.status, 'stale_lock'); assert.equal(stale.lockPath, lockPath);
+  assert.deepEqual(await f.state(), before);
+});

@@ -1,5 +1,6 @@
 - Before project context lookup, document management, or any Foundocs MCP call, read and follow [foundocs]({{FOUNDOCS_SKILL_PATH}}).
 - Write Foundocs documents only when requested or approved by the user. Otherwise propose the purpose/content and wait; do not reconfirm the same approved scope.
 - When the user provides durable project context, or lasting rules, confirmed decisions or verified reusable learnings arise (including after correcting your own mistakes), follow [foundocs-capture-knowledge]({{SKILL_PATH}}) in the same turn, even without a request to save. Skip when there is nothing new to keep.
+- Keep only important confirmed episodes with [foundocs-capture-episode]({{EPISODE_SKILL_PATH}}); skip routine turns locally.
 - Run Dreaming only on an explicit user request (including “꿈꾸자” or “꿈구자”); follow the foundocs skill. Quoted triggers and ordinary capture do not start Dreaming.
 - Project configuration: `foundocs.json` beside this governing AGENTS.md; resolve it from that directory, including when working in nested directories.

@@ -12,6 +12,7 @@ import { readCredential, windowsPrivateAcl } from './auth.mjs';
 import { legacy, legacyInstructions } from './legacy-compat.mjs';
 import { knowledgePolicy, skillAssets } from './skill-assets.mjs';
 import { newer } from '../skills/foundocs/scripts/check-update.mjs';
+import { episodeDiagnostics } from '../skills/foundocs/scripts/episode-checkpoint.mjs';
 
 const exec = promisify(execFile);
 const PACKAGE_VERSION = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).version;
@@ -65,6 +66,12 @@ export function helperCommand(args, platform = process.platform) {
 export function sessionHookCommand(client, projectId) {
   const prefix = client === 'codex' ? '.agents' : '.claude';
   const code = `const fs=require('node:fs'),p=require('node:path'),{spawnSync}=require('node:child_process');try{let r=fs.realpathSync(process.cwd());for(;;){const a=p.join(r,'foundocs.json'),b=p.join(r,'steerdocs.json');if(fs.existsSync(a)||fs.existsSync(b)){const c=JSON.parse(fs.readFileSync(fs.existsSync(a)?a:b,'utf8'));if(c.project_id!==${JSON.stringify(projectId)})break;spawnSync(process.execPath,[p.join(r,${JSON.stringify(prefix)},'skills/foundocs/scripts/session-start.mjs'),'--root',r],{cwd:r,stdio:['inherit','inherit','ignore'],timeout:55000});break;}if(fs.existsSync(p.join(r,'.git'))||p.dirname(r)===r)break;r=p.dirname(r);}}catch{}`;
+  return helperCommand(['node', '-e', code]);
+}
+
+export function episodeHookCommand(client, projectId) {
+  const prefix = client === 'codex' ? '.agents' : '.claude';
+  const code = `const fs=require('node:fs'),p=require('node:path'),{spawnSync}=require('node:child_process');try{let r=fs.realpathSync(process.cwd());for(;;){const a=p.join(r,'foundocs.json');if(fs.existsSync(a)){const c=JSON.parse(fs.readFileSync(a,'utf8'));if(c.project_id!==${JSON.stringify(projectId)})break;spawnSync(process.execPath,[p.join(r,${JSON.stringify(prefix)},'skills/foundocs/scripts/episode-checkpoint.mjs'),'hook','--root',r],{cwd:r,stdio:['inherit','inherit','ignore'],timeout:3000});break;}if(fs.existsSync(p.join(r,'.git'))||p.dirname(r)===r)break;r=p.dirname(r);}}catch{}`;
   return helperCommand(['node', '-e', code]);
 }
 
@@ -207,7 +214,7 @@ function sameConfig(a, b) {
   return JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
 }
 
-export const RUNTIME_ENV = ['FOUNDOCS_SETUP_HOME', 'FOUNDOCS_API_KEY', 'FOUNDOCS_PROJECT_ID', 'FOUNDOCS_WORKSPACE_ID', 'STEERDOCS_SETUP_HOME', 'STEERDOCS_API_KEY', 'STEERDOCS_PROJECT_ID', 'STEERDOCS_WORKSPACE_ID'];
+export const RUNTIME_ENV = ['FOUNDOCS_SETUP_HOME', 'FOUNDOCS_EPISODES', 'FOUNDOCS_API_KEY', 'FOUNDOCS_PROJECT_ID', 'FOUNDOCS_WORKSPACE_ID', 'STEERDOCS_SETUP_HOME', 'STEERDOCS_API_KEY', 'STEERDOCS_PROJECT_ID', 'STEERDOCS_WORKSPACE_ID'];
 
 export function portableTransport(projectId, version = PACKAGE_VERSION, client = 'codex') {
   if (client === 'claude') return { type: 'stdio', command: 'npx', args: ['--yes', `@foundocs/foundocs-setup@${version}`, 'mcp', '--project-id', projectId] };
@@ -340,6 +347,38 @@ export async function migrate(rootPath, options = {}) {
     await atomicWrite(join(directory, 'installation.json'), json(updated));
     const changes = await applyProjectChanges(root, directory, entries);
     return { ok: true, status: changes.length ? 'migrated' : 'already_portable', changedFiles: changes.map(entry => entry.path), credentialRetained: true, next: 'Restart or reconnect the selected client MCP, then call get_project_context to verify the host connection.' };
+  });
+}
+
+// Explicit opt-in only: startup/update-skills continue preserving runtime pins.
+export async function upgradeRuntime(rootPath, options = {}) {
+  const { root, directory, manifest } = await loadInstallation(rootPath, options);
+  await checkGitRoot(root);
+  return withLock(directory, async () => {
+    if (await installedFormat(root, manifest)) fail('preflight', 'Migrate the historical project configuration first.');
+    const { validateInstallation } = await import('./runtime.mjs');
+    await validateInstallation(root, directory, manifest);
+    const path = join(root, clientConfigName(manifest.client)), before = await textFile(path);
+    const previousText = await textFile(join(directory, 'runtime-upgrade.json'));
+    const previous = previousText ? parseJson(previousText, 'runtime-upgrade.json') : null;
+    const server = clientServers(before, manifest.client).foundocs;
+    const version = portableVersion(server, manifest.projectId, manifest.client);
+    // Resume only an exactly journaled interrupted upgrade, never edited config.
+    if (previous?.root === root && before === previous.afterConfig && sameConfig(manifest, previous.beforeManifest)) {
+      await atomicWrite(join(directory, 'installation.json'), json(previous.afterManifest));
+      return { ok: true, status: 'runtime_upgraded', version: previous.afterManifest.runtimeVersion, hostVerification: 'required' };
+    }
+    if (!version || version !== manifest.runtimeVersion) fail('preflight', 'Runtime configuration is not the recorded portable transport. Preserve edits; migrate legacy transports or reconcile the conflict first.');
+    if (!newer(PACKAGE_VERSION, version)) return { ok: true, status: 'runtime_current', version };
+    const desired = portableTransport(manifest.projectId, PACKAGE_VERSION, manifest.client);
+    let after;
+    if (manifest.client === 'codex') after = replaceTransport(before, 'foundocs', 'foundocs', desired, path);
+    else { const config = parseJson(before, path); config.mcpServers.foundocs = { ...server, ...desired }; after = json(config); }
+    const updated = { ...manifest, runtimeVersion: PACKAGE_VERSION };
+    await atomicWrite(join(directory, 'runtime-upgrade.json'), json({ root, configPath: path, beforeConfig: before, afterConfig: after, beforeManifest: manifest, afterManifest: updated }));
+    await applyProjectChanges(root, directory, [{ path, before, after, mode: (await lstat(path)).mode & 0o777 }]);
+    await atomicWrite(join(directory, 'installation.json'), json(updated));
+    return { ok: true, status: 'runtime_upgraded', version: PACKAGE_VERSION, credentialRetained: true, hostVerification: 'required', next: 'Reconnect MCP, run update-skills, and review exact hook definitions in the host. Verify episode_checkpoint and capture_episode are advertised; installation does not activate host trust.' };
   });
 }
 
@@ -527,26 +566,31 @@ async function skillPlan(root, client, directory, projectId) {
   const config = before === null ? {} : parseJson(before, path);
   if (config.hooks !== undefined && !plainObject(config.hooks)) fail('preflight', 'Hooks must be an object.', { path });
   config.hooks ??= {};
-  const groups = config.hooks.SessionStart ?? [];
-  if (!Array.isArray(groups) || groups.some(group => !plainObject(group) || !Array.isArray(group.hooks) || group.hooks.some(hook => !plainObject(hook)))) fail('preflight', 'SessionStart hooks must be matcher groups.', { path });
-  const command = sessionHookCommand(client, projectId);
-  const desired = { matcher: '^(startup|resume|clear|fork)$', hooks: [{ type: 'command', command, timeout: 60 }] };
-  const owned = state.sessionHook;
-  if (owned && owned.file !== hookFile) fail('preflight', 'Session hook ownership differs from this client.', { path });
-  const matches = groups.filter(group => [owned?.installedHash, owned?.pendingHash].includes(digest(JSON.stringify(group))) || group.hooks.some(hook => hook.command === command));
-  const modified = matches.some(group => owned
-    ? ![owned.installedHash, owned.pendingHash].includes(digest(JSON.stringify(group)))
-    : JSON.stringify(group) !== JSON.stringify(desired));
-  if (matches.length > 1 || (owned?.installedHash && matches.length !== 1) || modified) {
-    fail('preflight', 'The Foundocs session hook was modified or removed. Preserve and reconcile the hook before updating.', { path, skills: { status: 'conflict' } });
+  const desiredHooks = [
+    ['SessionStart', 'sessionHook', { matcher: '^(startup|resume|clear|fork)$', hooks: [{ type: 'command', command: sessionHookCommand(client, projectId), timeout: 60 }] }],
+    ...['UserPromptSubmit', 'Stop'].map(event => [event, `episode${event}Hook`, { hooks: [{ type: 'command', command: episodeHookCommand(client, projectId), timeout: 5 }] }]),
+  ];
+  let changed = false;
+  for (const [event, stateKey, desired] of desiredHooks) {
+    const groups = config.hooks[event] ?? [];
+    if (!Array.isArray(groups) || groups.some(group => !plainObject(group) || !Array.isArray(group.hooks) || group.hooks.some(hook => !plainObject(hook)))) fail('preflight', `${event} hooks must be matcher groups.`, { path });
+    const command = desired.hooks[0].command, owned = state[stateKey];
+    if (owned && owned.file !== hookFile) fail('preflight', `${event} hook ownership differs from this client.`, { path });
+    const matches = groups.filter(group => [owned?.installedHash, owned?.pendingHash].includes(digest(JSON.stringify(group))) || group.hooks.some(hook => hook.command === command));
+    const modified = matches.some(group => owned
+      ? ![owned.installedHash, owned.pendingHash].includes(digest(JSON.stringify(group)))
+      : JSON.stringify(group) !== JSON.stringify(desired));
+    if (matches.length > 1 || (owned?.installedHash && matches.length !== 1) || modified) {
+      fail('preflight', `The Foundocs ${event === 'SessionStart' ? 'session' : event} hook was modified or removed. Preserve and reconcile the hook before updating.`, { path, skills: { status: 'conflict' } });
+    }
+    if (!matches.length) { groups.push(desired); changed = true; }
+    else { changed ||= JSON.stringify(matches[0]) !== JSON.stringify(desired); groups[groups.indexOf(matches[0])] = desired; }
+    config.hooks[event] = groups;
+    const hookHash = digest(JSON.stringify(desired));
+    pending[stateKey] = { file: hookFile, installedHash: owned?.installedHash ?? null, pendingHash: hookHash };
+    complete[stateKey] = { file: hookFile, installedHash: hookHash };
   }
-  if (!matches.length) groups.push(desired);
-  else groups[groups.indexOf(matches[0])] = desired;
-  config.hooks.SessionStart = groups;
-  const after = matches.length && JSON.stringify(matches[0]) === JSON.stringify(desired) ? before : json(config);
-  const hookHash = digest(JSON.stringify(desired));
-  pending.sessionHook = { file: hookFile, installedHash: owned?.installedHash ?? null, pendingHash: hookHash };
-  complete.sessionHook = { file: hookFile, installedHash: hookHash };
+  const after = changed ? json(config) : before;
   entries.push({ path, before, after, mode: before === null ? 0o644 : (await lstat(path)).mode & 0o777 });
   return { entries, statePath, stateText, pending, complete };
 }
@@ -585,7 +629,7 @@ async function applyProjectChanges(root, directory, entries) {
 }
 
 function skillsInstalled() {
-  return { status: 'installed', hostVerification: 'required', next: 'Review and trust the SessionStart hook in the host (Codex: /hooks). Reconnect or restart if needed and confirm it discovers foundocs-capture-knowledge and foundocs. Installed files do not prove host discovery or execution.' };
+  return { status: 'installed', hostVerification: 'required', next: 'Review and trust the SessionStart, UserPromptSubmit and Stop hooks in the host (Codex: /hooks). Reconnect or restart if needed and confirm it discovers foundocs, foundocs-capture-knowledge and foundocs-capture-episode. Installed files do not prove host discovery or execution.' };
 }
 
 async function installedFormat(root, manifest) {
@@ -757,7 +801,7 @@ export async function doctor(rootPath, options = {}) {
   if (entries.some((entry) => entry.before !== entry.after)) fail('diagnostic', 'Installation files are incomplete or modified. Rerun install to repair them.');
   const client = await (options.probeClient ?? probeClient)(manifest.client);
   const diagnostic = await (options.diagnose ?? diagnose)(manifest, manifest.credentialPath, options);
-  return { ok: true, status: 'configured', root, client, diagnostic, skills };
+  return { ok: true, status: 'configured', root, client, diagnostic, skills, episodes: { ...await episodeDiagnostics(root, { storageDir: dirname(dirname(directory)) }), runtimeSupport: manifest.runtimeVersion && !newer('0.3.19', manifest.runtimeVersion) ? 'local_checkpoint_available_after_reconnect' : 'upgrade_required', ...(manifest.runtimeVersion && !newer('0.3.19', manifest.runtimeVersion) ? {} : { next: 'Run the current package upgrade-runtime command explicitly, reconnect MCP and review the host hooks. Skill updates preserve existing runtime pins.' }) } };
 }
 
 export async function rollback(rootPath, options = {}) {
@@ -782,7 +826,7 @@ export async function rollback(rootPath, options = {}) {
     const skillStateText = await textFile(skillStatePath);
     if (skillStateText !== null) {
       const state = parseJson(skillStateText, skillStatePath);
-      if (state.sessionHook && restored.includes(join(root, state.sessionHook.file))) delete state.sessionHook;
+      for (const key of ['sessionHook', 'episodeUserPromptSubmitHook', 'episodeStopHook']) if (state[key] && restored.includes(join(root, state[key].file))) delete state[key];
       if (state.root !== root || state.version !== 1 || !plainObject(state.files)) fail('rollback', 'Invalid skill installation metadata.');
       for (const entry of journal.entries) {
         const name = relative(root, entry.path).split(sep).join('/');
@@ -793,6 +837,18 @@ export async function rollback(rootPath, options = {}) {
         else state.files[name] = { installedHash: digest(current) };
       }
       if (json(state) !== skillStateText) await atomicWrite(skillStatePath, json(state));
+    }
+    const upgradePath = join(directory, 'runtime-upgrade.json'), upgradeText = await textFile(upgradePath);
+    if (upgradeText !== null) {
+      const upgrade = parseJson(upgradeText, upgradePath);
+      if (upgrade.root !== root || upgrade.configPath !== join(root, clientConfigName(upgrade.beforeManifest?.client))) fail('rollback', 'Invalid runtime upgrade journal.');
+      const currentConfig = await textFile(upgrade.configPath);
+      if (!conflicts.includes(upgrade.configPath) && (currentConfig === upgrade.beforeConfig || restored.includes(upgrade.configPath))) {
+        const manifestPath = join(directory, 'installation.json'), currentManifest = parseJson(await textFile(manifestPath), manifestPath);
+        if (sameConfig(currentManifest, upgrade.afterManifest) || sameConfig(currentManifest, upgrade.beforeManifest)) {
+          await atomicWrite(manifestPath, json(upgrade.beforeManifest)); await rm(upgradePath);
+        } else conflicts.push(manifestPath);
+      }
     }
     if (!conflicts.length) await rm(join(directory, 'rollback.json'));
     return { ok: conflicts.length === 0, status: conflicts.length ? 'rollback_conflicts' : 'rolled_back', restored, conflicts, credentialRetained: true, next: 'The private installation key is retained for retry. Revoke it from the web key manager if no longer needed.' };
