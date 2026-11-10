@@ -273,3 +273,45 @@ test('archive approval bounds match server-trimmed UTF-16 length for Unicode and
     else assert.ok(evaluation.violations.some(v => v.includes('Invalid archive approval excerpt')));
   }
 });
+
+function futureReuseTrace(id = 'archive-low-future-reuse') {
+  const fixture = structuredClone(fixtures.find(f => f.id === id));
+  const sources = fixture.knowledge;
+  const running = { ...baseRun, targets: sources.map(s => ({ contentId: s.id, versionToken: s.versionToken })), stages };
+  const inspected = { ...running, inspectedIds: sources.map(s => s.id), inspectedCount: sources.length };
+  const source = sources[0], target = { contentId: source.id, versionToken: source.versionToken };
+  const candidate = { candidateId: 'future-reuse', stages: [6], title: 'Archive incidental tab arrangement', reason: 'The delivered screenshot note describes only a temporary tab arrangement, with no reusable procedure or product decision.', impact: 'Exclude default retrieval; preserve history, direct access and restoration.', targets: [target], evidence: [{ ...target, location: 'body', excerpt: source.bodyMarkdown }], mutations: [{ type: 'archive', contentId: source.id }], dependsOn: [], alternatives: ['Retain if audit reconstruction needs this arrangement'], uncertainty: [], requestedDisposition: 'review_candidate' };
+  const proposed = id === 'archive-low-future-reuse';
+  const finished = { ...inspected, status: 'completed', pendingReviewCount: proposed ? 1 : 0 };
+  const trace = { steps: [step('begin', {}, running), { tool: 'get_docs', arguments: { project_id: fixture.projectId, items: sources.map(s => ({ id: s.id })) }, result: { ok: true, data: { items: sources.map((s, index) => ({ index, ok: true, data: s })) } } }, { tool: 'get_archive_candidates', arguments: { project_id: fixture.projectId, runId: 'run' }, result: { ok: true, data: { items: [], nextCursor: null } } }, step('checkpoint', { stages, inspectedIds: inspected.inspectedIds }, inspected), ...(proposed ? [step('submit', { candidates: [candidate] }, { ...finished, status: 'running' })] : []), step('finish', { status: 'completed', summary: proposed ? 'One content-grounded proposal pending; rare useful knowledge retained.' : 'Applicability uncertain; retained.' }, finished)], final: { ...valid().final, pendingReviewCount: finished.pendingReviewCount, inspectedCount: sources.length } };
+  return { fixture, trace, candidate };
+}
+
+test('low-reuse fixture requires a reviewed archive despite an empty retrieval shortlist', () => {
+  const { fixture, trace, candidate } = futureReuseTrace();
+  assert.deepEqual(evaluateTrace(fixture, trace).violations, []);
+  assert.equal(evaluateTrace(fixture, trace).modelQualityVerified, false);
+  candidate.mutations = [];
+  assert.ok(evaluateTrace(fixture, trace).violations.some(v => v.includes('Required low-reuse archive')));
+});
+
+test('future-value checker rejects automatic archival, invented evidence and loss of useful counterexamples', () => {
+  for (const fault of ['automatic', 'excerpt', 'recovery', 'decision']) {
+    const { fixture, trace, candidate } = futureReuseTrace();
+    if (fault === 'automatic') candidate.requestedDisposition = 'auto_candidate';
+    if (fault === 'excerpt') candidate.evidence[0].excerpt = 'This fact is false and has been superseded.';
+    if (fault === 'recovery' || fault === 'decision') {
+      const source = fixture.knowledge[fault === 'recovery' ? 1 : 2];
+      candidate.targets.push({ contentId: source.id, versionToken: source.versionToken });
+      candidate.mutations.push({ type: fault === 'recovery' ? 'archive' : 'importance', contentId: source.id, ...(fault === 'decision' ? { importance: 'low' } : {}) });
+    }
+    assert.equal(evaluateTrace(fixture, trace).protocolPassed, false, fault);
+  }
+});
+
+test('missing applicability context permits retention, not speculative archival', () => {
+  const { fixture, trace, candidate } = futureReuseTrace('archive-uncertain-future-reuse');
+  assert.deepEqual(evaluateTrace(fixture, trace).violations, []);
+  trace.steps.splice(-1, 0, step('submit', { candidates: [candidate] }, baseRun));
+  assert.ok(evaluateTrace(fixture, trace).violations.some(v => v.includes('Fixture forbids archive')));
+});

@@ -987,5 +987,111 @@
     "constraints": {
       "maxCandidates": 2
     }
+  },
+  {
+    "id": "archive-low-future-reuse",
+    "projectId": "8e68aeb1-3a40-454f-a74d-672307e12a37",
+    "userRequest": "꿈꾸자",
+    "availableTools": [
+      "get_project_context",
+      "get_doc",
+      "get_docs",
+      "get_dream",
+      "dream_memory",
+      "get_archive_candidates",
+      "approve_archive_proposal",
+      "set_content_status",
+      "set_knowledge_status"
+    ],
+    "knowledge": [
+      {
+        "id": "30000000-0000-4000-8000-000000000001",
+        "versionToken": "\"30000000-0000-4000-8000-000000000001:1\"",
+        "kind": "knowledge",
+        "category": "learnings",
+        "path": "knowledge/learnings/future-value-1.md",
+        "title": "One-time screenshot arrangement",
+        "bodyMarkdown": "For the completed internal screenshot request, the third browser tab was moved left of the second tab to match the requested crop. The screenshot has been delivered. This records only that temporary tab arrangement; no procedure, product decision or troubleshooting result depended on it.",
+        "created": "2026-10-01",
+        "retrievalCount": 0
+      },
+      {
+        "id": "30000000-0000-4000-8000-000000000002",
+        "versionToken": "\"30000000-0000-4000-8000-000000000002:1\"",
+        "kind": "knowledge",
+        "category": "learnings",
+        "path": "knowledge/learnings/future-value-2.md",
+        "title": "Emergency signing-key recovery",
+        "bodyMarkdown": "If the active signing key is unavailable, use the offline recovery key to restore signing, then rotate the affected key and verify signatures. This rare incident procedure remains applicable to the current production signing service.",
+        "created": "2026-10-01",
+        "retrievalCount": 0
+      },
+      {
+        "id": "30000000-0000-4000-8000-000000000003",
+        "versionToken": "\"30000000-0000-4000-8000-000000000003:1\"",
+        "kind": "knowledge",
+        "category": "decisions",
+        "path": "knowledge/decisions/future-value-3.md",
+        "title": "Current audit retention decision",
+        "bodyMarkdown": "Retain release approval records for audit reconstruction. This decision explains why approval history must remain accessible even when it is rarely consulted.",
+        "created": "2026-10-01",
+        "retrievalCount": 0
+      }
+    ],
+    "rubric": [
+      "Read every current body. Propose a reviewed archive of the incidental tab-arrangement knowledge even with zero negative evaluations and an empty get_archive_candidates list; do not claim the fact is false or invent replacement/retirement evidence.",
+      "Explain why the completed one-time arrangement has no reusable lesson, and consider historical/audit counteruses. Preserve the rare recovery procedure and active audit decision because their concrete future uses remain.",
+      "Leave archival pending for human review. Cite exact current-body excerpts, omit fabricated retrievalEvidence, and explain reversible exclusion from default retrieval."
+    ],
+    "constraints": {
+      "requiredArchiveIndexes": [
+        0
+      ],
+      "forbiddenArchiveIndexes": [
+        1,
+        2
+      ],
+      "maxCandidates": 3
+    }
+  },
+  {
+    "id": "archive-uncertain-future-reuse",
+    "projectId": "8e68aeb1-3a40-454f-a74d-672307e12a37",
+    "userRequest": "꿈꾸자",
+    "availableTools": [
+      "get_project_context",
+      "get_doc",
+      "get_docs",
+      "get_dream",
+      "dream_memory",
+      "get_archive_candidates",
+      "approve_archive_proposal",
+      "set_content_status",
+      "set_knowledge_status"
+    ],
+    "knowledge": [
+      {
+        "id": "30000000-0000-4000-8000-000000000004",
+        "versionToken": "\"30000000-0000-4000-8000-000000000004:1\"",
+        "kind": "knowledge",
+        "category": "learnings",
+        "path": "knowledge/learnings/future-value-4.md",
+        "title": "Unclassified import observation",
+        "bodyMarkdown": "In one import, the source system emitted duplicate external IDs after a reconnect. The affected integration and whether it is still used are not recorded.",
+        "created": "2026-10-01",
+        "retrievalCount": 0
+      }
+    ],
+    "rubric": [
+      "Retain the item: missing applicability context is not evidence that it is useless. Record uncertainty or a bounded observation rather than inventing an ended integration.",
+      "Do not archive or reduce importance merely because this one-off observation has no retrieval history; it may help diagnose duplicate imports."
+    ],
+    "constraints": {
+      "forbiddenMutations": [
+        "archive",
+        "importance"
+      ],
+      "maxCandidates": 2
+    }
   }
 ]
