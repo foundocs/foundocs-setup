@@ -58,13 +58,14 @@ export async function codexSessionModel(host, root, now = Date.now(), env = proc
     file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
     const stat = await file.stat();
     if (!stat.isFile() || now - stat.mtimeMs > 5 * 60_000 || stat.mtimeMs > now + 60_000) throw new Error();
-    // Identity is in the first record; turn metadata is read from the bounded tail.
+    // Identity is in the first record. A long active Codex turn can emit several
+    // MiB after turn_context; inspect a bounded 16 MiB tail, returning metadata only.
     const head = Buffer.alloc(Math.min(stat.size, 64 * 1024)); await file.read(head, 0, head.length, 0);
     const meta = JSON.parse(head.toString('utf8').split('\n')[0]);
     if (meta.type !== 'session_meta' || meta.payload.id !== host.sessionId || meta.payload.model_provider !== 'openai') throw new Error();
     const canonicalRoot = await realpath(root);
     if (!within(canonicalRoot, await realpath(meta.payload.cwd))) throw new Error();
-    const start = Math.max(0, stat.size - maxTail), buffer = Buffer.alloc(Math.min(stat.size, maxTail));
+    const start = Math.max(0, stat.size - 16 * maxTail), buffer = Buffer.alloc(Math.min(stat.size, 16 * maxTail));
     const { bytesRead } = await file.read(buffer, 0, buffer.length, start);
     const lines = buffer.subarray(0, bytesRead).toString('utf8').split('\n'); if (start) lines.shift();
     for (const line of lines.reverse()) {

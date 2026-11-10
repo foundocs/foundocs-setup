@@ -24,6 +24,11 @@ test('Codex uses only current thread turn metadata, rejects identity/provider/pa
   await write();
   const identify = () => codexSessionModel(host, root, Date.now(), { CODEX_THREAD_ID: sessionId });
   assert.deepEqual(await identify(), { status: 'identified', runner: CODEX_RUNNER, model: 'gpt-6-astra', modelSource: 'working_session', reasoningEffort: 'high' });
+  await writeFile(path, JSON.stringify(meta)+'\n'+JSON.stringify(turn)+'\n'+JSON.stringify({ type: 'response_item', payload: { text: 'x'.repeat(2 * 1024 * 1024) } })+'\n');
+  assert.equal((await identify()).model, 'gpt-6-astra');
+  const home = join(dir, 'home'), sessions = join(home, 'sessions', '2026', '11', '11'); await mkdir(sessions, { recursive: true });
+  await writeFile(join(sessions, `rollout-fixture-${sessionId}.jsonl`), JSON.stringify(meta)+'\n'+JSON.stringify(turn)+'\n');
+  assert.equal((await codexSessionModel({ sessionId }, root, Date.now(), { CODEX_HOME: home, CODEX_THREAD_ID: sessionId })).model, 'gpt-6-astra');
   assert.equal((await codexSessionModel(host, root, Date.now(), { CODEX_THREAD_ID: randomUUID() })).reason, 'working_model_unavailable');
   for (const change of [{ model: 'auto' }, { model: 'gpt-6-latest' }, { model: 'claude-sonnet-5' }, { cwd: dir }]) { await write(meta, { ...turn, payload: { ...turn.payload, ...change } }); assert.equal((await identify()).reason, 'working_model_unavailable'); }
   await write({ ...meta, payload: { ...meta.payload, model_provider: 'other' } }); assert.equal((await identify()).reason, 'working_model_unavailable');
