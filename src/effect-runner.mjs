@@ -4,6 +4,8 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { CLI_VERSION, BASE_ARGS, SYSTEM, Observation, EffectError, normalizeProbe, validOutput } from './effect-core.mjs';
 
+import { CODEX_RUNNER, CodexObservation, spawnCodex } from './effect-codex.mjs';
+
 const exec = promisify(execFile);
 export function providerEnvironment(env = process.env) {
   // No NODE_OPTIONS, shell hooks, provider routing overrides, or application keys.
@@ -45,7 +47,8 @@ export function spawnSupervised(_file, args, options) {
 }
 export async function runProbe({ cwd, brief, snapshot, context, policy, probe, heartbeat, observe, signal, spawnChild = spawnSupervised, heartbeatMs = 5000, grace = [3000, 2000] }) {
   if (signal?.aborted) return { ...probe, status: 'not_started', startedAt: null, finishedAt: null };
-  const observation = new Observation();
+  const codex = policy.runner === CODEX_RUNNER;
+  const observation = codex ? new CodexObservation() : new Observation();
   let child, line = '', init = false, invalid = false, output = null, resultSuccess = false, stopping = false, closed = false, status = null, heartbeating = false;
   const timers = [];
   const kill = sig => { if (closed || !child?.pid) return; try { process.kill(-child.pid, sig); } catch { child.kill(sig); } };
@@ -57,6 +60,13 @@ export async function runProbe({ cwd, brief, snapshot, context, policy, probe, h
   }
   async function accept(event) {
     observation.accept(event);
+    if (codex) {
+      if (event.type === 'effect_invalid') { invalid = true; stop('failed'); }
+      if (event.type === 'effect_init') { init = event.verified === true && event.model === policy.model; if (!init) { invalid = true; stop('failed'); } }
+      if (event.type === 'effect_result') { resultSuccess = event.success === true; output = event.output; }
+      if (event.type === 'effect_observation') await observe?.(observation.value());
+      return;
+    }
     if (event.type === 'system' && event.subtype === 'init') { init = verifiedInit(event, policy.model); if (!init) { invalid = true; stop('failed'); } }
     if (event.type === 'assistant') {
       for (const b of event.message?.content ?? []) if (b.type === 'tool_use' && !['Read', 'Glob', 'Grep'].includes(b.name)) { invalid = true; stop('failed'); }
@@ -81,7 +91,7 @@ export async function runProbe({ cwd, brief, snapshot, context, policy, probe, h
   let exit;
   try {
     if (signal?.aborted) return { ...probe, status: 'not_started', startedAt: null, finishedAt: null };
-    child = spawnChild('claude', probeArguments(policy), { cwd, env: providerEnvironment(), detached: true, effectTimeoutMs: policy.perProbeTimeoutMs, stdio: ['pipe', 'pipe', 'pipe'] });
+    child = (codex && spawnChild === spawnSupervised ? spawnCodex : spawnChild)(codex ? 'codex' : 'claude', codex ? [] : probeArguments(policy), { cwd, env: providerEnvironment(), detached: true, effectTimeoutMs: policy.perProbeTimeoutMs, effectPolicy: policy, stdio: ['pipe', 'pipe', 'pipe'] });
     child.stdout.setEncoding('utf8');
     child.stdout.on('data', chunk => {
       line += chunk;
@@ -91,7 +101,7 @@ export async function runProbe({ cwd, brief, snapshot, context, policy, probe, h
     });
     child.stderr.resume(); // Never retain raw provider errors or transcripts.
     child.stdin.on('error', () => {});
-    child.stdin.end(JSON.stringify({ brief, snapshotFiles: snapshot.files.map(f => f.path), ...(context.length ? { deliveredContext: context } : {}) }));
+    child.stdin.end(JSON.stringify({ brief, snapshotFiles: codex ? snapshot.files : snapshot.files.map(f => f.path), ...(context.length ? { deliveredContext: context } : {}) }));
     if (signal?.aborted) stop();
     exit = await new Promise(resolve => { child.once('error', () => resolve(-1)); child.once('close', code => { closed = true; resolve(code); }); });
     if (line.trim()) parseLine(line);

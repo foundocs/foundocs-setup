@@ -7,6 +7,7 @@ import { RUNNER, CLI_VERSION, UUID, EffectError, hash, missingObservation, norma
 import { privateDir, readJson, saveJson, cleanExpired, purgeRaw, freezeSnapshot, copySnapshot } from './effect-storage.mjs';
 import { capabilities, runProbe } from './effect-runner.mjs';
 import { workingSessionModel } from './effect-host.mjs';
+import { CODEX_RUNNER, CODEX_VERSION, codexCapabilities, codexToolPolicy } from './effect-codex.mjs';
 import { connectEffectRemote } from './effect-remote.mjs';
 
 export async function measurementInstallation(rootPath, options = {}) {
@@ -22,7 +23,7 @@ export async function measurementInstallation(rootPath, options = {}) {
 export const crashSettlementDeadline = (policy, now = Date.now()) => new Date(now + 2 * (policy.perProbeTimeoutMs + 5000) + 86400000).toISOString();
 
 export class EffectCoordinator {
-  constructor({ root, base, remote, probe = runProbe, check = capabilities, identify = workingSessionModel }) { Object.assign(this, { root, base, remote, probe, check, identify }); }
+  constructor({ root, base, remote, probe = runProbe, check = options => options?.runner === CODEX_RUNNER ? codexCapabilities() : capabilities(), identify = workingSessionModel }) { Object.assign(this, { root, base, remote, probe, check, identify }); }
   async initialize() { await cleanExpired(this.base); }
   path(taskId) { if (!UUID.test(taskId)) throw new EffectError('invalid_task_id'); return join(this.base, taskId); }
   async state(taskId) {
@@ -34,25 +35,26 @@ export class EffectCoordinator {
   async prepare({ policy, brief, allowlist, excludePaths = [], host }) {
     // Host fetched policy exactly once, before any exposure. OFF must not inspect/spawn CLI.
     if (policy?.enabled === false) return { status: 'skipped', reason: 'disabled' };
-    if (policy?.enabled !== true || policy.runner !== RUNNER) return { status: 'skipped', reason: 'unsupported_runner' };
+    if (policy?.enabled !== true || ![RUNNER, CODEX_RUNNER].includes(policy.runner)) return { status: 'skipped', reason: 'unsupported_runner' };
     const workingModel = await this.identify(host, this.root);
     if (workingModel.status !== 'identified') return workingModel;
+    const runner = workingModel.runner ?? RUNNER;
     validateBrief(brief);
     const dir = this.path(brief.taskId); await privateDir(dir);
     let state = await readJson(join(dir, 'state.json')).catch(e => { if (e.code !== 'ENOENT') throw e; return null; });
     if (state) {
-      if (state.workingModel?.model !== workingModel.model || state.workingModel?.modelSource !== 'working_session') throw new EffectError('task_conflict');
+      if (state.workingModel?.model !== workingModel.model || state.workingModel?.modelSource !== 'working_session' || (state.policy.runner ?? RUNNER) !== runner || state.workingModel?.reasoningEffort !== workingModel.reasoningEffort) throw new EffectError('task_conflict');
       if (state.briefSha256 !== hash(brief) || state.sourceSelectionHash !== hash({ allowlist, excludePaths })) throw new EffectError('task_conflict');
       if (Date.parse(state.expiresAt) <= Date.now()) throw new EffectError('expired_preparation');
       if (state.prepared) return { status: 'prepared', ...state.prepared, effectPreparationId: state.prepared.id };
       if (!state.prepareInput) throw new EffectError('incomplete_preparation', 'A prior snapshot attempt was interrupted. Do not recreate this task after exposure.');
     } else {
       let runnerVersion;
-      try { runnerVersion = await this.check(); } catch (e) { if (e.code === 'unsupported_runner') return { status: 'skipped', reason: e.code }; throw e; }
-      state = { taskId: brief.taskId, criterionIds: brief.criteria.map(c => c.id), brief, briefSha256: hash(brief), sourceSelectionHash: hash({ allowlist, excludePaths }), policy: { ...policy, model: workingModel.model }, workingModel, runnerVersion, expiresAt: new Date(Date.now() + 86400000).toISOString() };
+      try { runnerVersion = await this.check({ runner }); } catch (e) { if (e.code === 'unsupported_runner') return { status: 'skipped', reason: e.code }; throw e; }
+      state = { taskId: brief.taskId, criterionIds: brief.criteria.map(c => c.id), brief, briefSha256: hash(brief), sourceSelectionHash: hash({ allowlist, excludePaths }), policy: { ...policy, runner, model: workingModel.model }, workingModel, runnerVersion, expiresAt: new Date(Date.now() + 86400000).toISOString() };
       await saveJson(join(dir, 'state.json'), state, true);
       state.snapshot = await freezeSnapshot(this.root, join(dir, 'snapshot'), allowlist, excludePaths);
-      state.prepareInput = { requestId: randomUUID(), brief, briefSha256: state.briefSha256, snapshot: state.snapshot, runner: RUNNER, runnerVersion, model: workingModel.model, modelSource: workingModel.modelSource };
+      state.prepareInput = { requestId: randomUUID(), brief, briefSha256: state.briefSha256, snapshot: state.snapshot, runner, runnerVersion, model: workingModel.model, modelSource: workingModel.modelSource };
       await saveJson(join(dir, 'state.json'), state);
     }
     state.prepared = await this.remote.call('prepare_effect_measurement', state.prepareInput);
@@ -61,7 +63,7 @@ export class EffectCoordinator {
     return { status: 'prepared', ...state.prepared, effectPreparationId: state.prepared.id };
   }
   baseProbe(state, arm) {
-    return { arm, status: 'not_started', runner: RUNNER, runnerVersion: state.runnerVersion, provider: 'anthropic', model: state.policy.model, tokenUnit: 'provider_input_output_tokens', briefSha256: state.briefSha256, snapshotSha256: state.snapshot.sha256, criteriaSha256: hash(state.brief.criteria), toolPolicySha256: hash(toolPolicy(state.policy)), protocolVersion: 1, contextSha256: arm === 'with_foundocs' ? state.reservation.deliveredContextSha256 : null, isolationVerified: false, evidenceVerified: false, startedAt: null, finishedAt: null, observation: missingObservation(), output: null };
+    return { arm, status: 'not_started', runner: state.policy.runner, runnerVersion: state.runnerVersion, provider: state.policy.runner === CODEX_RUNNER ? 'openai' : 'anthropic', model: state.policy.model, tokenUnit: 'provider_input_output_tokens', briefSha256: state.briefSha256, snapshotSha256: state.snapshot.sha256, criteriaSha256: hash(state.brief.criteria), toolPolicySha256: hash(state.policy.runner === CODEX_RUNNER ? codexToolPolicy({ ...state.policy, reasoningEffort: state.workingModel.reasoningEffort }) : toolPolicy(state.policy)), protocolVersion: 1, contextSha256: arm === 'with_foundocs' ? state.reservation.deliveredContextSha256 : null, isolationVerified: false, evidenceVerified: false, startedAt: null, finishedAt: null, observation: missingObservation(), output: null };
   }
   async flush(taskId) {
     const dir = this.path(taskId); const state = await this.state(taskId);
@@ -135,8 +137,8 @@ export class EffectCoordinator {
     let stopped = false;
     try {
       if (state.rawExpired) throw new EffectError('expired_preparation');
-      const version = await this.check();
-      if (version !== state.runnerVersion || version !== CLI_VERSION) throw new EffectError('unsupported_runner');
+      const version = await this.check({ runner: state.policy.runner });
+      if (version !== state.runnerVersion || version !== (state.policy.runner === CODEX_RUNNER ? CODEX_VERSION : CLI_VERSION)) throw new EffectError('unsupported_runner');
       const { sha256: ignored, ...manifest } = state.snapshot;
       if (hash(manifest) !== state.snapshot.sha256 || hash(state.brief) !== state.briefSha256) throw new EffectError('unsafe_snapshot');
       state.reserveInput = { requestId: randomUUID(), preparationId: state.prepared.id, retrievalIds: [...new Set(retrievalIds)] };
@@ -166,7 +168,7 @@ export class EffectCoordinator {
         if (!(await control('start_arm', arm)) || controller.signal.aborted) break;
         const probe = state.probes[arm]; probe.startedAt = new Date().toISOString(); probe.status = 'failed';
         await saveJson(join(dir, 'state.json'), state);
-        state.probes[arm] = await this.probe({ cwd, brief: state.brief, snapshot: state.snapshot, context: arm === 'with_foundocs' ? state.reservation.deliveredContext : [], policy: state.policy, probe, signal: controller.signal, heartbeat: () => control('heartbeat'), observe: async observation => { probe.observation = observation; state.settlementExpiresAt = crashSettlementDeadline(state.policy); await saveJson(join(dir, 'state.json'), state); } });
+        state.probes[arm] = await this.probe({ cwd, brief: state.brief, snapshot: state.snapshot, context: arm === 'with_foundocs' ? state.reservation.deliveredContext : [], policy: { ...state.policy, ...(state.workingModel.reasoningEffort ? { reasoningEffort: state.workingModel.reasoningEffort } : {}) }, probe, signal: controller.signal, heartbeat: () => control('heartbeat'), observe: async observation => { probe.observation = observation; state.settlementExpiresAt = crashSettlementDeadline(state.policy); await saveJson(join(dir, 'state.json'), state); } });
         state.probes[arm] = normalizeProbe(state.probes[arm], { criteria: state.criterionIds.map(id => ({ id })) });
         await saveJson(join(dir, 'state.json'), state);
         if (!(await control('heartbeat', undefined, state.probes[arm]))) break;

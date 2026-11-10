@@ -169,7 +169,7 @@ test('missing session, Codex host, unavailable runner and OFF never launch a sub
   const { workingSessionModel } = await import('../src/effect-host.mjs');
   const f = await fixture(t); f.coordinator.identify = workingSessionModel;
   f.coordinator.check = () => { throw Error('must not inspect runner'); };
-  for (const [host, reason] of [[undefined, 'working_model_unavailable'], [{ client: 'codex' }, 'unsupported_runner'], [{ client: 'claude_code', model: policy.model }, 'working_model_unavailable']]) {
+  for (const [host, reason] of [[undefined, 'working_model_unavailable'], [{ client: 'codex' }, 'working_model_unavailable'], [{ client: 'claude_code', model: policy.model }, 'working_model_unavailable']]) {
     assert.deepEqual(await f.coordinator.prepare({ policy, host, brief: brief(), allowlist: ['source.txt'] }), { status: 'skipped', reason });
   }
   f.coordinator.identify = () => { throw Error('must not read metadata when OFF'); };

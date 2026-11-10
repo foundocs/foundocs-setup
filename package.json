@@ -1,9 +1,9 @@
 {
   "name": "@foundocs/foundocs-setup",
-  "version": "0.3.17",
+  "version": "0.3.18",
   "description": "Repeatable project setup and agent skills for the Foundocs remote MCP server",
   "foundocsRelease": {
-    "summary": "Use the working session model for paired effect measurements, with host model metadata and explicit skips instead of a separate project model."
+    "summary": "Measure Codex and Claude work with the current session model, isolated source tools and observed provider usage."
   },
   "type": "module",
   "bin": {
@@ -26,7 +26,7 @@
     "build": "node build.mjs",
     "prepack": "node build.mjs",
     "test": "node build.mjs && node --test test/*.test.mjs",
-    "typecheck": "node --check eval/evaluate-trace.mjs && node --check eval/product-archive-check.mjs && node --check src/cli.mjs && node --check src/setup.mjs && node --check src/auth.mjs && node --check src/bridge.mjs && node --check src/legacy-compat.mjs && node --check src/skill-assets.mjs && node --check src/runtime.mjs && node --check skills/foundocs/scripts/check-update.mjs && node --check skills/foundocs/scripts/session-start.mjs && node --check src/effect.mjs && node --check src/effect-core.mjs && node --check src/effect-storage.mjs && node --check src/effect-runner.mjs && node --check src/effect-remote.mjs && node --check src/effect-watchdog.mjs && node --check eval/effect-api-check.mjs && node --check eval/effect-isolation-check.mjs && node --check src/effect-host.mjs"
+    "typecheck": "node --check eval/evaluate-trace.mjs && node --check eval/product-archive-check.mjs && node --check src/cli.mjs && node --check src/setup.mjs && node --check src/auth.mjs && node --check src/bridge.mjs && node --check src/legacy-compat.mjs && node --check src/skill-assets.mjs && node --check src/runtime.mjs && node --check skills/foundocs/scripts/check-update.mjs && node --check skills/foundocs/scripts/session-start.mjs && node --check src/effect.mjs && node --check src/effect-core.mjs && node --check src/effect-storage.mjs && node --check src/effect-runner.mjs && node --check src/effect-remote.mjs && node --check src/effect-watchdog.mjs && node --check eval/effect-api-check.mjs && node --check eval/effect-isolation-check.mjs && node --check src/effect-host.mjs && node --check src/effect-codex.mjs && node --check src/effect-codex-worker.mjs && node --check src/effect-codex-tools.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/client": "2.3.1",
