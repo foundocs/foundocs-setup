@@ -7,6 +7,9 @@ import { randomUUID, createHash } from 'node:crypto';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 if (process.env.FOUNDOCS_EFFECT_LIVE_CHECK !== '1') throw new Error('Explicit synthetic paid check opt-in required.');
+const codex=process.env.FOUNDOCS_EFFECT_RUNNER==='codex';
+const model=codex?process.env.FOUNDOCS_EFFECT_MODEL:'claude-haiku-5-5';
+if(!model)throw new Error('Provide observed model for Codex synthetic check.');
 const source=process.env.FOUNDOCS_PRODUCT_DIR;if(!source)throw new Error('FOUNDOCS_PRODUCT_DIR must select the read-only product fixture checkout.');
 const {httpFixture}=await import(pathToFileURL(join(source,'apps/server/src/mcp/http-fixture.ts')).href);
 const f=await httpFixture();const base=await realpath(await mkdtemp(join(tmpdir(),'effect-api-')));
@@ -36,16 +39,16 @@ try {
   const policy=await call('get_effect_measurement_policy'),taskId=randomUUID();
   const brief={taskId,question:`What is the ${field} setting?`,knownContext:'',criteria:[{id:'setting',description:`Find the literal ${field} setting value from available sources.`}]};
   // Synthetic host metadata exercises transport; this is not actual host provenance evidence.
-  const sessionId=randomUUID(),transcriptPath=join(base,sessionId+'.jsonl');
-  await writeFile(transcriptPath,JSON.stringify({type:'assistant',sessionId,cwd:root,timestamp:new Date().toISOString(),message:{model:'claude-haiku-5-5'}})+'\n');
-  const host={client:'claude_code',sessionId,transcriptPath};
-  const prep=await command('prepare',{policy,host,brief,allowlist:['source.txt']});assert.equal(prep.status,'prepared');
+  const sessionId=randomUUID(),transcriptPath=join(base,(codex?'rollout-fixture-':'')+sessionId+'.jsonl');
+  await writeFile(transcriptPath,codex ? JSON.stringify({type:'session_meta',payload:{id:sessionId,cwd:root,model_provider:'openai'}})+'\n'+JSON.stringify({type:'turn_context',timestamp:new Date().toISOString(),payload:{cwd:root,model,effort:'high'}})+'\n' : JSON.stringify({type:'assistant',sessionId,cwd:root,timestamp:new Date().toISOString(),message:{model}})+'\n');
+  const host={client:codex?'codex':'claude_code',sessionId,transcriptPath};
+  const prep=await command('prepare',{policy,host,brief,allowlist:['source.txt']},{CODEX_THREAD_ID:sessionId});assert.equal(prep.status,'prepared');
   const tracking={taskId,effectPreparationId:prep.effectPreparationId};await call('get_project_context',{view:'index',...tracking});
   const retrievalIds=[];
   for(const [document,verdict]of [[doc,'beneficial'],[irrelevant,'not_beneficial']]){const read=await call('get_doc',{id:document.id,readId:randomUUID(),...tracking});for(const r of read.retrievals){retrievalIds.push(r.retrievalId);await call('report_retrieval_evaluation',{retrievalId:r.retrievalId,verdict,reason:'Synthetic information task',requestId:randomUUID()});}}
   const result=await command('run',{taskId,retrievalIds});assert.equal(result.status,'reported',JSON.stringify(result));
   const state=JSON.parse(await readFile(join(directory,'effects',taskId,'state.json'),'utf8'));
-  const probes=Object.values(state.probes);for(const p of probes){assert.equal(p.isolationVerified,true);assert.equal(p.observation.completeness,'complete');assert.deepEqual(p.observation.models,['claude-haiku-5-5']);assert.ok(p.observation.usage.totalTokens>0);assert.ok(p.observation.estimatedCostUsd>0);}
+  const probes=Object.values(state.probes);for(const p of probes){assert.equal(p.isolationVerified,true);assert.equal(p.observation.completeness,'complete');assert.deepEqual(p.observation.models,[model]);assert.ok(p.observation.usage.totalTokens>0);if(codex)assert.equal(p.observation.estimatedCostUsd,null);else assert.ok(p.observation.estimatedCostUsd>0);}
   assert.equal((await command('run',{taskId,retrievalIds})).status,'already_reported');
   console.error(JSON.stringify({case:field,probes}));
   if(field==='retry'){assert.equal(state.probes.with_foundocs.status,'completed');assert.equal(state.probes.without_foundocs.status,'completed');}

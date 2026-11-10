@@ -117,7 +117,7 @@ for (const client of ['codex', 'claude']) test(`${client}: generated hook execut
   await writeFile(npm, '#!/usr/bin/env node\nconsole.error("private child diagnostic"); process.exit(1);');
   const failed = await execute('/bin/sh', ['-c', hook], { cwd: f.root, env });
   assert.equal(failed.stdout, ''); assert.equal(failed.stderr, '');
-  if (client === 'claude') {
+  {
     // A failed update must not erase host identity; forward hook stdin through the generated shell command.
     const host = { session_id: '9472826c-b235-4ae5-87db-f4e0ca856ad4', transcript_path: join(f.base, '9472826c-b235-4ae5-87db-f4e0ca856ad4.jsonl') };
     const captured = await new Promise((resolve, reject) => {

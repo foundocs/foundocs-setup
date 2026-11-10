@@ -52,7 +52,9 @@ export async function sessionStart(args, hookInput = {}) {
     if (!['.agents', '.claude'].some(client => script === join(root, client, 'skills/foundocs/scripts/session-start.mjs'))) return null;
     const result = await autoUpdate(root);
     const isClaude = script.includes('/.claude/') || script.includes('\\.claude\\');
-    const host = isClaude && typeof hookInput.session_id === 'string' && /^[0-9a-f-]{36}$/.test(hookInput.session_id) && typeof hookInput.transcript_path === 'string' && isAbsolute(hookInput.transcript_path)
+    const host = !isClaude && typeof hookInput.session_id === 'string' && /^[0-9a-f-]{36}$/.test(hookInput.session_id)
+      ? { client: 'codex', sessionId: hookInput.session_id, ...(typeof hookInput.transcript_path === 'string' && isAbsolute(hookInput.transcript_path) ? { transcriptPath: hookInput.transcript_path } : {}) }
+      : isClaude && typeof hookInput.session_id === 'string' && /^[0-9a-f-]{36}$/.test(hookInput.session_id) && typeof hookInput.transcript_path === 'string' && isAbsolute(hookInput.transcript_path)
       ? { client: 'claude_code', sessionId: hookInput.session_id, transcriptPath: hookInput.transcript_path } : null;
     if (result.status !== 'updated' && !host) return null;
     const context = [result.status === 'updated' ? `Foundocs skills updated to ${result.version}. Read the installed SKILL.md before using Foundocs; already loaded instructions may need a host reload.` : '', host ? `Foundocs effect measurement host session: ${JSON.stringify(host)}. Pass this host object to measure prepare; the installer reads only current model metadata. Never supply a guessed model.` : ''].filter(Boolean).join('\n');

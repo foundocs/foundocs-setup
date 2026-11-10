@@ -65,7 +65,7 @@ export async function purgeRaw(path, state) {
     // Reread under the same lock as usage writes: cleanup never overwrites newer observations.
     const latest = await readJson(file);
     await writeJson(file, stripRaw(latest));
-    for (const name of ['snapshot', 'with_foundocs', 'without_foundocs']) await rm(join(path, name), { recursive: true, force: true });
+    for (const name of ['snapshot', 'with_foundocs', 'without_foundocs', ...(await readdir(path)).filter(name => name.startsWith('codex-runtime-'))]) await rm(join(path, name), { recursive: true, force: true });
   });
 }
 export async function cleanExpired(base, now = Date.now()) {
