@@ -354,7 +354,7 @@ export async function migrate(rootPath, options = {}) {
   });
 }
 
-// Explicit opt-in only: startup/update-skills continue preserving runtime pins.
+// Targeted runtime-only upgrade; the public update command also refreshes skills.
 export async function upgradeRuntime(rootPath, options = {}) {
   const { root, directory, manifest } = await loadInstallation(rootPath, options);
   await checkGitRoot(root);
@@ -660,6 +660,79 @@ async function skillInstructionEntries(root, manifest, oldFormat) {
   return entries;
 }
 
+// One lock and a complete preflight cover runtime, instructions, assets and hooks.
+// Commit runtime metadata before the skill release marker so an interrupted
+// update remains discoverable by the old SessionStart hook on the next session.
+export async function updateInstallation(rootPath, options = {}) {
+  const { root, directory } = await loadInstallation(rootPath, options);
+  await checkGitRoot(root);
+  await privateDirectory(directory);
+  return withLock(directory, async () => {
+    const { manifest } = await loadInstallation(root, options);
+    if (await installedFormat(root, manifest)) fail('preflight', 'First rerun install to migrate the historical project configuration.');
+    const { validateInstallation } = await import('./runtime.mjs');
+    await validateInstallation(root, directory, manifest);
+    const prefix = manifest.client === 'codex' ? '.agents' : '.claude';
+    const release = await textFile(join(root, prefix, 'skills/foundocs/release.json'));
+    if (release && newer(parseJson(release, 'release.json').version, PACKAGE_VERSION)) {
+      fail('preflight', 'A newer skill release is already installed. Use that release or newer; downgrades are not applied.');
+    }
+    const skills = await skillPlan(root, manifest.client, directory, manifest.projectId);
+    const skillEntries = [...await skillInstructionEntries(root, manifest, false), ...skills.entries];
+    const path = join(root, clientConfigName(manifest.client));
+    await safeParent(root, path);
+    await writableParent(path);
+    const before = await textFile(path);
+    const server = clientServers(before, manifest.client)?.foundocs;
+    const version = portableVersion(server, manifest.projectId, manifest.client);
+    const previousText = await textFile(join(directory, 'runtime-upgrade.json'));
+    const previous = previousText ? parseJson(previousText, 'runtime-upgrade.json') : null;
+    const resume = previous?.root === root && previous.configPath === path
+      && before === previous.afterConfig && sameConfig(manifest, previous.beforeManifest)
+      && version === previous.afterManifest?.runtimeVersion;
+    let updated = resume ? previous.afterManifest : manifest;
+    if (version && newer(version, PACKAGE_VERSION)) fail('preflight', 'A newer MCP runtime is already installed. Use that release or newer; downgrades are not applied.');
+    let after = before;
+    if (version) {
+      if (version !== updated.runtimeVersion) fail('preflight', 'Runtime configuration is not the recorded portable transport. Preserve edits and reconcile the conflict first.');
+      if (newer(PACKAGE_VERSION, version)) {
+        const desired = portableTransport(manifest.projectId, PACKAGE_VERSION, manifest.client);
+        if (manifest.client === 'codex') after = replaceTransport(before, 'foundocs', 'foundocs', desired, path);
+        else { const config = parseJson(before, path); config.mcpServers.foundocs = { ...server, ...desired }; after = json(config); }
+        updated = { ...updated, runtimeVersion: PACKAGE_VERSION };
+      }
+    } else {
+      // Migrate only a recorded legacy transport, never adopt a missing/edited server.
+      const ownedTransport = await recordedTransport(root, directory, manifest);
+      if (manifest.runtimeVersion || !ownedTransport || !server || !matchesLegacyTransport(server, manifest) || unsafeLegacyOverrides(server, manifest.client)) {
+        fail('preflight', 'Runtime configuration is not the recorded portable transport. Preserve edits; migrate legacy transports or reconcile the conflict first.');
+      }
+      const entries = await plan(root, manifest, manifest.credentialPath, manifest.helperPath, { owned: true, ownedTransport });
+      after = entries.find(entry => entry.path === path).after;
+      updated = { ...manifest, runtimeVersion: PACKAGE_VERSION, previousTransport: ownedTransport };
+    }
+    // Every conflict above is checked before staging or changing any file.
+    const runtimeChanged = before !== after || !sameConfig(manifest, updated);
+    if (before !== after) {
+      await atomicWrite(join(directory, 'runtime-upgrade.json'), json({ root, configPath: path, beforeConfig: before, afterConfig: after, beforeManifest: manifest, afterManifest: updated }));
+    }
+    await stageSkills(skills);
+    const runtimeChanges = await applyProjectChanges(root, directory, [{ path, before, after, mode: (await lstat(path)).mode & 0o777 }]);
+    if (!sameConfig(manifest, updated)) await atomicWrite(join(directory, 'installation.json'), json(updated));
+    const changes = await applyProjectChanges(root, directory, skillEntries);
+    await finishSkills(skills);
+    return {
+      ok: true, status: 'updated', root, version: PACKAGE_VERSION,
+      changedFiles: [...runtimeChanges, ...changes].map(entry => entry.path),
+      credentialRetained: true, skills: skillsInstalled(),
+      runtime: { status: runtimeChanged ? 'runtime_upgraded' : 'runtime_current', version: updated.runtimeVersion, reconnectRequired: runtimeChanged },
+      next: 'Restart or reconnect the selected client MCP to load the updated runtime and skills. Review changed hook definitions in the host (Codex: /hooks), then run doctor. Host trust is never changed by the updater.',
+    };
+  });
+}
+
+// Low-level skill-only helper retained for installer lifecycle compatibility.
+// The public update and update-skills CLI commands both use updateInstallation.
 export async function updateSkills(rootPath, options = {}) {
   const { root, directory, manifest } = await loadInstallation(rootPath, options);
   await checkGitRoot(root);
@@ -805,7 +878,7 @@ export async function doctor(rootPath, options = {}) {
   if (entries.some((entry) => entry.before !== entry.after)) fail('diagnostic', 'Installation files are incomplete or modified. Rerun install to repair them.');
   const client = await (options.probeClient ?? probeClient)(manifest.client);
   const diagnostic = await (options.diagnose ?? diagnose)(manifest, manifest.credentialPath, options);
-  return { ok: true, status: 'configured', root, client, diagnostic, skills, episodes: { ...await episodeDiagnostics(root, { storageDir: dirname(dirname(directory)) }), runtimeSupport: manifest.runtimeVersion && !newer('0.3.19', manifest.runtimeVersion) ? 'local_checkpoint_available_after_reconnect' : 'upgrade_required', ...(manifest.runtimeVersion && !newer('0.3.19', manifest.runtimeVersion) ? {} : { next: 'Run the current package upgrade-runtime command explicitly, reconnect MCP and review the host hooks. Skill updates preserve existing runtime pins.' }) } };
+  return { ok: true, status: 'configured', root, client, diagnostic, skills, episodes: { ...await episodeDiagnostics(root, { storageDir: dirname(dirname(directory)) }), runtimeSupport: manifest.runtimeVersion && !newer('0.3.19', manifest.runtimeVersion) ? 'local_checkpoint_available_after_reconnect' : 'upgrade_required', ...(manifest.runtimeVersion && !newer('0.3.19', manifest.runtimeVersion) ? {} : { next: 'Run the current package update command, reconnect MCP and review the host hooks.' }) } };
 }
 
 export async function rollback(rootPath, options = {}) {

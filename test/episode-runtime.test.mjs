@@ -1,14 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID, createHash } from 'node:crypto';
-import { mkdtemp, mkdir, readFile, writeFile, rm, realpath } from 'node:fs/promises';
+import { chmod, mkdtemp, mkdir, readFile, writeFile, rm, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { createServer } from 'node:http';
 import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { parse, stringify } from 'smol-toml';
-import { install, updateSkills, upgradeRuntime, rollback, doctor, portableVersion, portableTransport } from '../src/setup.mjs';
+import { install, updateInstallation, updateSkills, upgradeRuntime, rollback, doctor, portableVersion, portableTransport } from '../src/setup.mjs';
 import { install as installPrevious, portableTransport as previousPortableTransport } from 'foundocs-setup-previous/src/setup.mjs';
 import { episodeCheckpoint } from '../skills/foundocs/scripts/episode-checkpoint.mjs';
 const currentVersion = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).version;
@@ -148,4 +150,106 @@ test('an existing remote same-name tool is preserved without local shadowing', a
   assert.equal((await c.listTools()).tools.filter(t => t.name === 'episode_checkpoint').length, 1);
   await c.callTool({ name: 'episode_checkpoint', arguments: { project_id: f.projectId } });
   assert.equal(f.calls.at(-1).name, 'episode_checkpoint');
+});
+
+for (const client of ['codex', 'claude']) test(`${client}: unified update upgrades published 0.3.18 and connects without exchanging credentials`, async t => {
+  const f = await fixture(t, client, installPrevious);
+  const manifestPath = join(f.privateDir, 'installation.json');
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+  const credential = await readFile(manifest.credentialPath, 'utf8');
+  const result = await updateInstallation(f.root, f.options);
+  assert.equal(result.runtime.version, currentVersion);
+  assert.equal(result.runtime.reconnectRequired, true);
+  assert.equal(result.skills.status, 'installed');
+  assert.equal(await readFile(manifest.credentialPath, 'utf8'), credential);
+  assert.equal(JSON.parse(await readFile(manifestPath, 'utf8')).runtimeVersion, currentVersion);
+  assert.equal((await doctor(f.root, f.options)).episodes.runtimeSupport, 'local_checkpoint_available_after_reconnect');
+  const c = await f.connect();
+  assert.ok((await c.listTools()).tools.some(tool => tool.name === 'episode_checkpoint'));
+  const again = await updateInstallation(f.root, f.options);
+  assert.deepEqual(again.changedFiles, []);
+  assert.equal(again.runtime.reconnectRequired, false);
+  assert.equal((await rollback(f.root, f.options)).ok, true);
+  assert.equal(await readFile(f.configPath, 'utf8'), f.originalConfig);
+  assert.equal(await readFile(f.hookPath, 'utf8'), f.originalHooks);
+  assert.equal(await readFile(manifest.credentialPath, 'utf8'), credential);
+});
+
+for (const client of ['codex', 'claude']) test(`${client}: unified preflight protects runtime and skills from conflicts and locks`, async t => {
+  const f = await fixture(t, client, installPrevious);
+  const skillPath = join(f.root, client === 'codex' ? '.agents' : '.claude', 'skills/foundocs/SKILL.md');
+  const skill = await readFile(skillPath, 'utf8'), config = await readFile(f.configPath, 'utf8');
+  const hooks = await readFile(f.hookPath, 'utf8');
+  const manifestPath = join(f.privateDir, 'installation.json'), manifest = await readFile(manifestPath, 'utf8');
+  await writeFile(skillPath, skill + '\nUser customization');
+  await assert.rejects(updateInstallation(f.root, f.options), /unowned or modified/);
+  assert.equal(await readFile(f.configPath, 'utf8'), config);
+  assert.equal(await readFile(manifestPath, 'utf8'), manifest);
+  assert.equal(await readFile(f.hookPath, 'utf8'), hooks);
+  await writeFile(skillPath, skill);
+  await writeFile(f.configPath, config.replace('0.3.18', '0.3.17'));
+  await assert.rejects(updateInstallation(f.root, f.options), /not the recorded/);
+  assert.equal(await readFile(skillPath, 'utf8'), skill);
+  assert.equal(await readFile(f.hookPath, 'utf8'), hooks);
+  await writeFile(f.configPath, config);
+  const lock = join(f.privateDir, 'operation.lock');
+  await writeFile(lock, 'fixture');
+  await assert.rejects(updateInstallation(f.root, f.options), /holds the lock/);
+  assert.equal(await readFile(f.configPath, 'utf8'), config);
+  await rm(lock);
+  await updateInstallation(f.root, f.options);
+});
+
+for (const client of ['codex', 'claude']) test(`${client}: unified update resumes an interrupted runtime commit before refreshing skills`, async t => {
+  const f = await fixture(t, client, installPrevious);
+  const manifestPath = join(f.privateDir, 'installation.json');
+  const before = await readFile(manifestPath, 'utf8');
+  await upgradeRuntime(f.root, f.options);
+  await writeFile(manifestPath, before); // Config written, manifest and skills not committed yet.
+  const result = await updateInstallation(f.root, f.options);
+  assert.equal(result.runtime.version, currentVersion);
+  assert.equal(result.runtime.reconnectRequired, true);
+  assert.equal(JSON.parse(await readFile(manifestPath, 'utf8')).runtimeVersion, currentVersion);
+  assert.equal((await doctor(f.root, f.options)).ok, true);
+});
+
+
+for (const client of ['codex', 'claude']) test(`${client}: an actual published old SessionStart hook upgrades runtime through the CLI alias`, async t => {
+  const f = await fixture(t, client, installPrevious);
+  const hook = JSON.parse(await readFile(f.hookPath, 'utf8')).hooks.SessionStart[0].hooks[0].command;
+  const bin = join(f.privateDir, 'bin'); await mkdir(bin);
+  const shim = join(bin, 'npx'), registry = join(bin, 'registry.mjs');
+  const cli = new URL('../src/cli.mjs', import.meta.url).pathname;
+  await writeFile(registry, `globalThis.fetch = async () => Response.json({name:'@foundocs/foundocs-setup',version:${JSON.stringify(currentVersion)}});`);
+  // Only substitute npm package resolution. Execute the real CLI and its writes.
+  await writeFile(shim, `#!/usr/bin/env node
+const assert = require('node:assert/strict');
+const args = process.argv.slice(2);
+assert.deepEqual(args.slice(0,3), ['--yes',${JSON.stringify('@foundocs/foundocs-setup@' + currentVersion)},'update-skills']);
+const result = require('node:child_process').spawnSync(process.execPath, [${JSON.stringify(cli)}, ...args.slice(2)], {stdio:'inherit'});
+process.exit(result.status ?? 1);
+`);
+  await chmod(shim, 0o755);
+  const output = await promisify(execFile)('/bin/sh', ['-c', hook], { cwd: f.root, env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, FOUNDOCS_SETUP_HOME: f.storageDir, NODE_OPTIONS: `--import=${registry}` } });
+  assert.match(JSON.parse(output.stdout).hookSpecificOutput.additionalContext, /updated/);
+  assert.equal(output.stderr, '');
+  const manifest = JSON.parse(await readFile(join(f.privateDir, 'installation.json'), 'utf8'));
+  assert.equal(manifest.runtimeVersion, currentVersion);
+  assert.equal((await doctor(f.root, f.options)).ok, true);
+});
+
+for (const client of ['codex', 'claude']) test(`${client}: unified update refuses downgrades without refreshing any skill`, async t => {
+  const f = await fixture(t, client, installPrevious);
+  const manifestPath = join(f.privateDir, 'installation.json');
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+  const config = await readFile(f.configPath, 'utf8');
+  const next = client === 'codex' ? parse(config) : JSON.parse(config);
+  const servers = client === 'codex' ? next.mcp_servers : next.mcpServers;
+  servers.foundocs = { ...servers.foundocs, ...portableTransport(f.projectId, '999.0.0', client) };
+  await writeFile(f.configPath, client === 'codex' ? stringify(next) : JSON.stringify(next));
+  manifest.runtimeVersion = '999.0.0'; await writeFile(manifestPath, JSON.stringify(manifest));
+  const hooks = await readFile(f.hookPath, 'utf8');
+  await assert.rejects(updateInstallation(f.root, f.options), /newer MCP runtime/);
+  assert.equal(await readFile(f.hookPath, 'utf8'), hooks);
+  assert.match(await readFile(f.configPath, 'utf8'), /999\.0\.0/);
 });

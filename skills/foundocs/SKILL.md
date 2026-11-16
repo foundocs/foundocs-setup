@@ -7,7 +7,7 @@ description: Read a compact document and knowledge index on first project use in
 
 Before any Foundocs MCP call, read [configuration and authentication](references/configuration.md) and follow its exact project selection contract. Resolve the configuration from the governing AGENTS.md directory, even when working in a nested directory. Stop all calls on missing or invalid configuration or inaccessible projects; never guess a replacement.
 
-Setup installs a SessionStart hook that checks for and installs newer stable skills automatically. See [the update guide](references/updates.md) for manual updates, host trust and conflict recovery. Do not repeat the hook from the agent loop; failed updates never block normal work.
+Setup installs a SessionStart hook that checks for and installs newer stable MCP runtimes and skills together automatically. See [the update guide](references/updates.md) for manual updates, host trust and conflict recovery. Do not repeat the hook from the agent loop; failed updates never block normal work.
 
 Create or edit Foundocs documents only within the user's request or approval. If you identify a useful document that was not requested, explain its purpose and proposed content, ask whether to save it to Foundocs, and wait for approval. Do not ask again for the same already-authorized scope. A default storage location is not permission to write documents.
 

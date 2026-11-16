@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { parse, stringify } from 'smol-toml';
-import { install, doctor, migrate, rollback, updateSkills, portableVersion } from '../src/setup.mjs';
+import { install, doctor, migrate, rollback, updateSkills, updateInstallation, portableVersion } from '../src/setup.mjs';
 import { resolveRuntime } from '../src/runtime.mjs';
 
 const currentVersion = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).version;
@@ -184,4 +184,17 @@ test('AC-46: doctor distinguishes a changed execution command from an owned lega
   const f = await fixture(t);
   await writeFile(f.config, (await readFile(f.config, 'utf8')).replace('command = "npx"', 'command = "foreign-runtime"'));
   await assert.rejects(doctor(f.root, f.options), error => error.stage === 'diagnostic' && /conflict|differs/.test(error.message) && !/Run foundocs-setup migrate/.test(error.message));
+});
+
+
+test('unified update migrates a recorded legacy transport and preserves credentials and comments', async t => {
+  const f = await legacyFixture(t);
+  const credential = await readFile(f.manifest.credentialPath, 'utf8');
+  const result = await updateInstallation(f.root, f.options);
+  assert.equal(result.runtime.version, currentVersion);
+  assert.match(await readFile(f.config, 'utf8'), /Keep server note/);
+  assert.equal(await readFile(f.manifest.credentialPath, 'utf8'), credential);
+  assert.equal((await doctor(f.root, f.options)).ok, true);
+  assert.equal((await rollback(f.root, f.options)).ok, true);
+  assert.equal(await readFile(f.config, 'utf8'), f.text);
 });

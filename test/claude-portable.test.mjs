@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readFile, writeFile, rm, realpath, chmod } from 'node:f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { install, doctor, migrate, rollback, updateSkills, helperCommand, portableVersion, portableTransport } from '../src/setup.mjs';
+import { install, doctor, migrate, rollback, updateSkills, updateInstallation, helperCommand, portableVersion, portableTransport } from '../src/setup.mjs';
 import { resolveRuntime } from '../src/runtime.mjs';
 const currentVersion = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).version;
 const projectId = '8e68aeb1-3a40-454f-a74d-672307e12a37', workspaceId = '411212ef-b143-4cba-8411-5a7d48b616de', attemptId = '8c11c83b-645d-4a76-8aaf-a9ae2f43e561';
@@ -116,4 +116,17 @@ test('AC-49: noncanonical npm version pins stop before credential exchange', asy
     await assert.rejects(install(f.root, { ...input, attemptId: workspaceId }, f.options), { stage: 'preflight' });
     assert.equal(f.exchanges(), 1); assert.equal(await readFile(f.path, 'utf8'), text);
   }
+});
+
+
+test('unified update migrates recorded Claude HTTP configuration and retains custom fields', async t => {
+  const f = await fixture(t, true);
+  const credential = await readFile(f.manifest.credentialPath, 'utf8');
+  const result = await updateInstallation(f.root, f.options);
+  assert.equal(result.runtime.version, currentVersion);
+  assert.equal(JSON.parse(await readFile(f.path, 'utf8')).mcpServers.foundocs.customField.preserve, true);
+  assert.equal(await readFile(f.manifest.credentialPath, 'utf8'), credential);
+  assert.equal((await doctor(f.root, f.options)).ok, true);
+  assert.equal((await rollback(f.root, f.options)).ok, true);
+  assert.equal(await readFile(f.path, 'utf8'), f.text);
 });

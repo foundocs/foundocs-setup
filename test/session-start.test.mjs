@@ -71,12 +71,12 @@ test('modified or removed managed hook prevents writes, while unrelated hook edi
 test('each session performs a fresh lookup and installs the exact newer stable version without a prompt', async t => {
   const f = await fixture(t);
   let lookups = 0, installs = 0;
-  const options = { ...f.checkOptions, fetch: async () => { lookups++; return Response.json({ name: '@foundocs/foundocs-setup', version: '1.1.0' }); }, runUpdate: async (root, version) => { assert.equal(root, f.root); assert.equal(version, '1.1.0'); installs++; return { ok: true, skills: { status: 'installed' } }; } };
+  const options = { ...f.checkOptions, fetch: async () => { lookups++; return Response.json({ name: '@foundocs/foundocs-setup', version: '1.1.0' }); }, runUpdate: async (root, version) => { assert.equal(root, f.root); assert.equal(version, '1.1.0'); installs++; return { ok: true, skills: { status: 'installed' }, runtime: { version: '1.1.0' } }; } };
   for (let i = 0; i < 2; i++) assert.deepEqual(await autoUpdate(f.root, options), { status: 'updated', version: '1.1.0' });
   assert.equal(lookups, 2); assert.equal(installs, 2);
   const [command, args] = updateCommand(f.root, '1.1.0');
   assert.equal(command, 'npx');
-  assert.deepEqual(args, ['--yes', '@foundocs/foundocs-setup@1.1.0', 'update-skills', '--root', f.root]);
+  assert.deepEqual(args, ['--yes', '@foundocs/foundocs-setup@1.1.0', 'update', '--root', f.root]);
   const [windows, windowsArgs] = updateCommand(f.root, '1.1.0', 'win32');
   assert.equal(windows, 'powershell.exe');
   assert.ok(Buffer.from(windowsArgs.at(-1), 'base64').toString('utf16le').includes("project '' $(literal) 한글"));
@@ -106,7 +106,7 @@ for (const client of ['codex', 'claude']) test(`${client}: generated hook execut
   await mkdir(bin);
   await writeFile(registry, "globalThis.fetch = async () => Response.json({ name: '@foundocs/foundocs-setup', version: '999.0.0' });");
   const npm = join(bin, 'npx');
-  await writeFile(npm, `#!/usr/bin/env node\nconst assert = require('node:assert/strict'); const fs = require('node:fs'); assert.deepEqual(process.argv.slice(2), ['--yes','@foundocs/foundocs-setup@999.0.0','update-skills','--root',process.cwd()]); fs.writeFileSync(${JSON.stringify(releasePath)}, JSON.stringify({version:'999.0.0'})); console.log(JSON.stringify({ok:true,skills:{status:'installed'}}));`);
+  await writeFile(npm, `#!/usr/bin/env node\nconst assert = require('node:assert/strict'); const fs = require('node:fs'); assert.deepEqual(process.argv.slice(2), ['--yes','@foundocs/foundocs-setup@999.0.0','update','--root',process.cwd()]); fs.writeFileSync(${JSON.stringify(releasePath)}, JSON.stringify({version:'999.0.0'})); console.log(JSON.stringify({ok:true,skills:{status:'installed'},runtime:{version:'999.0.0'}}));`);
   await chmod(npm, 0o755);
   const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, FOUNDOCS_SETUP_HOME: f.storageDir, NODE_OPTIONS: `--import=${registry}` };
   const result = await execute('/bin/sh', ['-c', hook], { cwd: f.root, env });

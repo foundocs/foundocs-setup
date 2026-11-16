@@ -10,7 +10,7 @@ const execute = promisify(execFile);
 const PACKAGE = '@foundocs/foundocs-setup';
 
 export function updateCommand(root, version, platform = process.platform) {
-  const args = ['--yes', `${PACKAGE}@${version}`, 'update-skills', '--root', root];
+  const args = ['--yes', `${PACKAGE}@${version}`, 'update', '--root', root];
   if (platform !== 'win32') return ['npx', args];
   const quote = value => `'${value.replaceAll("'", "''")}'`;
   const script = `& npx.cmd ${args.map(quote).join(' ')}; exit $LASTEXITCODE`;
@@ -36,7 +36,7 @@ export async function autoUpdate(root, options = {}) {
     if (typeof current !== 'string' || !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(current)) return { status: 'unavailable' };
     if (!newer(check.latestVersion, current)) return { status: 'up_to_date' };
     const result = await (options.runUpdate ?? runUpdate)(root, check.latestVersion);
-    if (result.ok !== true || result.skills?.status !== 'installed') return { status: 'unavailable' };
+    if (result.ok !== true || result.skills?.status !== 'installed' || result.runtime?.version !== check.latestVersion) return { status: 'unavailable' };
     return { status: 'updated', version: check.latestVersion };
   } catch {
     // Never expose child stderr, registry responses, credentials or local paths.
@@ -57,7 +57,7 @@ export async function sessionStart(args, hookInput = {}) {
       : isClaude && typeof hookInput.session_id === 'string' && /^[0-9a-f-]{36}$/.test(hookInput.session_id) && typeof hookInput.transcript_path === 'string' && isAbsolute(hookInput.transcript_path)
       ? { client: 'claude_code', sessionId: hookInput.session_id, transcriptPath: hookInput.transcript_path } : null;
     if (result.status !== 'updated' && !host) return null;
-    const context = [result.status === 'updated' ? `Foundocs skills updated to ${result.version}. Read the installed SKILL.md before using Foundocs; already loaded instructions may need a host reload.` : '', host ? `Foundocs effect measurement host session: ${JSON.stringify(host)}. Pass this host object to measure prepare; the installer reads only current model metadata. Never supply a guessed model.` : ''].filter(Boolean).join('\n');
+    const context = [result.status === 'updated' ? `Foundocs skills and MCP runtime configuration updated to ${result.version}. Reconnect or restart MCP to load the new runtime; the running process has not been replaced. Read the installed SKILL.md and review changed hook definitions in the host.` : '', host ? `Foundocs effect measurement host session: ${JSON.stringify(host)}. Pass this host object to measure prepare; the installer reads only current model metadata. Never supply a guessed model.` : ''].filter(Boolean).join('\n');
     return { hookSpecificOutput: {
       hookEventName: 'SessionStart',
       additionalContext: context,

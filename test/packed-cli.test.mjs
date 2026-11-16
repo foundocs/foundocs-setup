@@ -237,7 +237,7 @@ globalThis.fetch = async (url, options) => {
     const offlineEnv = { ...env, NODE_OPTIONS: `--import=${blockNetwork}` };
     const requestCount = requests.length;
     const updated = await command(cli, root, offlineEnv, 'update-skills');
-    assert.equal(updated.status, 0); assert.equal(updated.result.status, 'skills_updated');
+    assert.equal(updated.status, 0); assert.equal(updated.result.status, 'updated'); assert.equal(updated.result.runtime.version, packageVersion);
     assert.ok((await readFile(join(root, 'AGENTS.md'), 'utf8')).includes(`](${skillRelative}/SKILL.md)`));
     for (const name of foundocsAssets) assert.equal(await readFile(join(foundocsRoot, name), 'utf8'), await readFile(join(extracted, 'skills/foundocs', name), 'utf8'));
     assert.equal(JSON.parse(await readFile(join(foundocsRoot, 'release.json'), 'utf8')).version, packageVersion);
@@ -255,7 +255,7 @@ globalThis.fetch = async (url, options) => {
     assert.equal(cached.shouldPrompt, false);
     assert.equal((await check(offlineEnv, ['--defer', offered.latestVersion])).status, 'deferred');
     assert.equal((await check(offlineEnv)).status, 'deferred');
-    const repeated = await command(cli, root, offlineEnv, 'update-skills');
+    const repeated = await command(cli, root, offlineEnv, 'update');
     assert.equal(repeated.status, 0); assert.deepEqual(repeated.result.changedFiles, []);
     assert.equal(requests.length, requestCount); assert.deepEqual(await snapshot(protectedPaths), before);
     const diagnosed = await command(cli, root, env, 'doctor');
