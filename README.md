@@ -43,7 +43,7 @@ startup_timeout_sec = 60
 
 Each teammate runs the integration prompt once for their own clone. This creates a local private manifest/key scoped to that canonical checkout; it retains the existing valid portable TOML byte for byte. Copying, moving or cloning a checkout does not transfer its authentication. A missing local installation returns a redacted error explaining how to install or diagnose it. No `.env` loader is needed, and the agent never reads the API key.
 
-The host must have Node.js 22.19.0+ and npm/npx on its PATH. A desktop launched without your shell's PATH may need its environment configured or a restart. The first uncached `npx` launch requires npm registry access; later launches use npm's normal cache. The runtime version is pinned to an exact release for reproducibility. Reinstalling/authenticating with a newer installer preserves an existing valid pin; `update-skills` never upgrades the MCP runtime. An intentional runtime update is a reviewed change to the shared pin, followed by local install/migrate and host verification. A pinned registry command requires that release to have been published; local pre-release verification uses a packed artifact installed in an isolated fixture.
+The host must have Node.js 22.19.0+ and npm/npx on its PATH. A desktop launched without your shell's PATH may need its environment configured or a restart. The first uncached `npx` launch requires npm registry access; later launches use npm's normal cache. The runtime version is pinned to an exact release for reproducibility. Reinstalling/authenticating preserves an existing valid pin. Since 0.3.21, `update` and its `update-skills` compatibility alias advance the recorded runtime pin together with skills; SessionStart uses the same full-update path. Reconnect the host after an update and review changed hook definitions. A pinned registry command requires that release to have been published; local pre-release verification uses a packed artifact installed in an isolated fixture.
 
 The runtime starts from the host's working directory and selects the nearest `foundocs.json`. It stops at a Git checkout boundary, a malformed nearer file or a project-ID mismatch. It never searches another checkout for a working credential. It validates the canonical root, project/workspace IDs, endpoint, recorded attempt, expected private credential path and file permissions before opening the remote connection. The explicit `--project-id` protects a nested project from silently inheriting its parent's transport. These are startup identity checks: tool calls still pass their explicit `project_id` unchanged and the remote server retains its existing workspace authorization rules.
 
@@ -58,7 +58,7 @@ npx --yes @foundocs/foundocs-setup@0.3.5 migrate --root /absolute/project
 npx --yes @foundocs/foundocs-setup@0.3.5 doctor --root /absolute/project
 ```
 
-`migrate` is offline, requires no connection code, and retains the credential bytes. It verifies the private manifest and journal against the original absolute transport, edits only the owned server's transport fields and preserves unrelated TOML, comments, tool settings and timeouts. Missing ownership evidence, changed execution settings and unsupported inline tables stop with the original file intact. An install rerun can perform the same migration while reusing its saved same-attempt key. `update-skills` remains skill-only.
+`migrate` is offline, requires no connection code, and retains the credential bytes. It verifies the private manifest and journal against the original absolute transport, edits only the owned server's transport fields and preserves unrelated TOML, comments, tool settings and timeouts. Missing ownership evidence, changed execution settings and unsupported inline tables stop with the original file intact. An install rerun can perform the same migration while reusing its saved same-attempt key. Since 0.3.21, the `update-skills` CLI is an alias for the unified `update` command below.
 
 Writes use the existing lock, atomic replacement, concurrency check and rollback journal. If interrupted, retain the journal and rerun the same command; confirm no process is running before clearing a stale lock. `rollback` restores unchanged setup edits to the recorded baseline and preserves later user edits and credentials. The baseline may predate migration when an installation already has a journal. After migration, restart/reconnect the trusted Codex project and call `get_project_context` through its MCP server. Doctor reports legacy transport migration separately from conflicting portable configuration; an independent doctor call does not prove the host connected.
 
@@ -80,9 +80,9 @@ Commit the project `.mcp.json` alongside `foundocs.json`, instructions and `.cla
 
 Every teammate runs the integration prompt once in their clone to save their own installation key. The shared JSON remains byte-identical when it already has a valid supported pin. Claude’s stdio process inherits the host environment: start Claude with Node/npm/npx on PATH and, when applicable, the same `FOUNDOCS_SETUP_HOME` and matching scoped credential override variables. No private environment value belongs in `.mcp.json`. The first uncached launch can require registry access. Approve the project MCP server in Claude before connecting.
 
-Claude uses the same working-directory resolution, project ID guard, private manifest/credential checks and redacted errors as Codex. `CLAUDE_PROJECT_DIR` does not override root selection. Runtime 0.3.5 is the first version that accepts Claude installation manifests; a Claude pin to 0.3.4 is rejected. Existing Codex 0.3.4 pins remain supported and are not upgraded by reinstall or `update-skills`.
+Claude uses the same working-directory resolution, project ID guard, private manifest/credential checks and redacted errors as Codex. `CLAUDE_PROJECT_DIR` does not override root selection. Runtime 0.3.5 is the first version that accepts Claude installation manifests; a Claude pin to 0.3.4 is rejected. Existing Codex 0.3.4 pins remain supported. Reinstallation preserves them; the unified `update` command upgrades recorded pins.
 
-For an existing Claude HTTP `headersHelper` installation, run the same `migrate --root /absolute/project` command above with 0.3.5. Migration verifies the recorded helper command, private credential scope and endpoint before converting it to stdio. It performs no key exchange or remote request, retains unrelated JSON values and server settings, and supports retry and rollback. Modified endpoints/helpers, extra authentication or execution overrides, and missing ownership evidence are conflicts. JSON whitespace may be normalized during conversion; an already-portable configuration is left byte for byte unchanged. `doctor` points owned HTTP installs to migration, distinguishes configuration conflicts, and independently checks MCP connectivity. `update-skills` changes neither connection settings nor keys.
+For an existing Claude HTTP `headersHelper` installation, run the same `migrate --root /absolute/project` command above with 0.3.5. Migration verifies the recorded helper command, private credential scope and endpoint before converting it to stdio. It performs no key exchange or remote request, retains unrelated JSON values and server settings, and supports retry and rollback. Modified endpoints/helpers, extra authentication or execution overrides, and missing ownership evidence are conflicts. JSON whitespace may be normalized during conversion; an already-portable configuration is left byte for byte unchanged. `doctor` points owned HTTP installs to migration, distinguishes configuration conflicts, and independently checks MCP connectivity. `update` and its `update-skills` alias refresh the recorded runtime transport while retaining keys and unrelated connection settings.
 
 Before release, the 0.3.5 tarball was tested through both clients’ private installation records and real HTTP MCP. The macOS Claude CLI loaded the generated `.mcp.json` at project scope and reported Connected; a protocol client using the same generated command completed discovery and `get_project_context`. The real Codex host also discovered the tools and completed a read call. Claude was not logged in, so model-driven Claude tool selection was not verified. Public npm publication and Linux/Windows host verification are separate release checks.
 
@@ -103,9 +103,9 @@ Existing recorded installations can update the skill and managed instructions wi
 node /absolute/path/to/foundocs-setup/src/cli.mjs update-skills --root /absolute/project
 ```
 
-The equivalent command for this release is `npx --yes @foundocs/foundocs-setup@latest update-skills --root /absolute/project`. The local commands above run this checkout; a pinned npm command requires that registry release to exist.
+The equivalent command for this release is `npx --yes @foundocs/foundocs-setup@latest update --root /absolute/project`. The local commands above run this checkout; a pinned npm command requires that registry release to exist.
 
-Updates preserve MCP settings, project configuration, authentication helpers and private keys, including installations that still use the historical configuration filename. The private `skills.json` records installed/pending asset hashes for interruption recovery. Foreign same-name files and local skill edits stop installation/update before project writes; move or reconcile the reported file explicitly, then retry. Unrelated skills and instructions are retained. `rollback` includes skill assets and preserves concurrent edits.
+The unified update preserves project identity, authentication helpers, private keys and unrelated MCP settings while upgrading the recorded runtime pin. Historical project configuration names require the existing install migration first. The private `skills.json` records installed/pending asset hashes for interruption recovery. Foreign same-name files and local skill edits stop installation/update before project writes; move or reconcile the reported file explicitly, then retry. Unrelated skills and instructions are retained. `rollback` includes skill assets and preserves concurrent edits.
 
 `doctor` reports missing, outdated or conflicting skill files separately from MCP diagnostics and points to `update-skills`. A successful `skills.status: installed` verifies files only; the selected host must still discover the skill after reconnection/restart when needed. Neither setup nor doctor claims that a model executed the skill or will always follow it. A SessionStart skill-update hook is installed; no background knowledge collection is installed.
 
@@ -127,21 +127,21 @@ The skills explain stable IDs, previous-path aliases, relative-link bases, move 
 
 The Foundocs skill reached through the managed bootstrap guides the agent to resolve the configured project and read `get_project_context({ project_id, view: "index" })` once on the first use of each project in a session. The compact index combines frequently retrieved, recently beneficial and recently updated documents and knowledge. It is a discovery shortcut: if an entry is absent or insufficient, the agent continues with metadata, path and body searches across active content. Index exposure does not add retrieval records.
 
-Older servers without index mode remain usable through the existing context call and search tools. Index retrieval remains agent guidance; the separate SessionStart hook updates skill files only. The same instructions ship in new installations and `update-skills`.
+Older servers without index mode remain usable through the existing context call and search tools. Index retrieval remains agent guidance; the separate SessionStart hook updates managed runtime pins and skills. The same instructions ship in new installations and `update-skills`.
 
-## Automatic skill updates
+## Automatic runtime and skill updates (0.3.21)
 
-Setup and `update-skills` install a `SessionStart` command hook in `.codex/hooks.json` (Codex) or `.claude/settings.json` (Claude Code), preserving unrelated hooks and settings. On startup, resume, clear or fork, it checks public npm metadata and automatically installs a newer stable release using its exact version. Each event performs a fresh lookup, rather than reusing the manual checker's 24-hour cache. Only Foundocs skills, managed instructions and this hook are updated; MCP runtime pins, connection settings and keys stay unchanged.
+Setup and `update` install a `SessionStart` command hook in `.codex/hooks.json` (Codex) or `.claude/settings.json` (Claude Code), preserving unrelated hooks and settings. On startup, resume, clear or fork, it checks public npm metadata and automatically installs a newer stable release using its exact version. Each event performs a fresh lookup, rather than reusing the manual checker's 24-hour cache. The exact stable version updates the installer-owned MCP runtime pin, skills, managed instructions and hooks together. Project identity, credentials and unrelated settings stay unchanged. The running MCP process loads the new runtime only after reconnect/restart.
 
 Existing installations enable this once, without a new connection code:
 
 ```sh
-npx --yes @foundocs/foundocs-setup@latest update-skills --root /absolute/project
+npx --yes @foundocs/foundocs-setup@latest update --root /absolute/project
 ```
 
-The same command is the manual update command. Host trust still applies: review and trust new hooks with Codex `/hooks`, and accept the project settings/hook review in Claude Code. Disabled or untrusted hooks do not run. Never bypass the host's trust policy. Restart/reload the host if needed; installation does not prove host execution. Claude's hook requests a skill re-scan after a successful update; already loaded Codex instructions may require a reload.
+The same command is the manual update command. `update-skills` remains a compatibility alias for this full update, so previously installed SessionStart hooks also upgrade the runtime. Run `npx --yes @foundocs/foundocs-setup@latest doctor --root /absolute/project` afterward to check files and connectivity. Host trust still applies: review and trust new hooks with Codex `/hooks`, and accept the project settings/hook review in Claude Code. Disabled or untrusted hooks do not run. Never bypass the host's trust policy. Restart/reload the host if needed; installation does not prove host execution. Claude's hook requests a skill re-scan after a successful update; already loaded Codex instructions may require a reload.
 
-The registry request has a five-second timeout and package execution a 45-second timeout. Failures remain non-blocking and do not print credentials or raw child output. Setup locks, asset hashes and hook ownership prevent concurrent writes and overwrites of local edits; a newer installed release is never downgraded by `update-skills`. Resolve a reported conflict manually, then rerun the command. Remove or disable the Foundocs SessionStart handler in the host to opt out; setup will preserve a modified/removed managed hook as a conflict rather than silently restoring it.
+The registry request has a five-second timeout and package execution a 45-second timeout. Failures remain non-blocking and do not print credentials or raw child output. Setup locks, asset hashes and hook ownership prevent concurrent writes and overwrites of local edits; the updater rejects a downgrade of either installed skills or runtime. All managed changes are preflighted before any project write. Runtime configuration and metadata commit before the skill release marker, allowing the next session to retry interrupted updates. Resolve a reported conflict manually, then rerun the command. Remove or disable the Foundocs SessionStart handler in the host to opt out; setup will preserve a modified/removed managed hook as a conflict rather than silently restoring it.
 
 The bundled `check-update.mjs` remains a read-only manual version checker, with its 24-hour cache and deferral support for older clients. It does not itself install packages. The automatic hook intentionally ignores those old offer/deferral decisions. Private check state lives under `~/.local/share/foundocs/setup/update-checks` or the corresponding `FOUNDOCS_SETUP_HOME` directory. The installer manages both scripts, `foundocs/release.json` and the hook through its update/rollback lifecycle.
 
@@ -225,27 +225,34 @@ POSIX private storage is supported; Windows currently skips checkpoint capture.
 Unsupported/missing tools and failures preserve ordinary work and never turn
 an episode into a document. Document consent and Dreaming consent are unchanged.
 
-**Existing installations:** `update-skills` and SessionStart updates deliberately
-preserve the pinned MCP runtime. To opt an installer-owned portable runtime into
-this release, run the new package's explicit upgrade, then refresh skills:
+**Existing installations (0.3.21+):** run one command from your project root:
 
 ```sh
-npx --yes @foundocs/foundocs-setup@0.3.20 upgrade-runtime --root /absolute/project
-npx --yes @foundocs/foundocs-setup@0.3.20 update-skills --root /absolute/project
+npx --yes @foundocs/foundocs-setup@latest update --root "$PWD"
 ```
 
-Legacy transports must first use the existing `migrate` flow. The upgrade checks
-the recorded transport, preserves foreign settings and credentials, journals its
-change and supports interrupted retry. Version 0.3.20 recognizes the environment
-list written by pre-episode portable runtimes, including 0.3.18; newer runtimes
-still require the episode opt-out environment variable. The existing
-conflict-safe `rollback` restores the original installation journal baseline,
-which can precede initial setup; it is not a runtime-only undo command.
-Reconnect MCP and review the exact new hook hashes afterward. Skill updates do
-not silently activate or upgrade the runtime. `doctor` reports runtime support
-and live/stale checkpoint locks separately from host verification. If a crashed
-helper leaves a stale lock, confirm its process has ended and remove only the
-reported lock; preserve the outbox and credentials.
+This updates the recorded MCP runtime pin, all bundled skills, managed instructions
+and hooks without another connection code. `update-skills` is a compatibility alias
+for the same operation; old SessionStart hooks therefore gain runtime updates too.
+Recorded legacy transports migrate in this flow. Historical project configuration
+names still require the existing install migration first. Changed or unowned
+settings and managed skill/hook conflicts stop preflight without overwriting them.
+
+Reconnect or restart MCP to load the new runtime and skills, and review changed
+hook definitions through the host. Then run:
+
+```sh
+npx --yes @foundocs/foundocs-setup@latest doctor --root "$PWD"
+```
+
+`doctor` checks files, connectivity and runtime support; it does not prove that
+host hooks are trusted or executed. Confirm `episode_checkpoint` and
+`capture_episode` discovery in the reconnected host when using episodes.
+`upgrade-runtime` remains available for a targeted runtime-only upgrade.
+The conflict-safe generic `rollback` restores the accumulated installation
+journal baseline, which may precede setup; it is not a runtime-only undo command.
+If a crashed helper leaves a stale lock, confirm its process has ended and remove
+only the reported lock; preserve the outbox and credentials.
 
 Opt out without editing managed hooks/skills by adding
 `"episodes": {"enabled": false}` to `foundocs.json`, or launch the host with
