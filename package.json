@@ -1,9 +1,9 @@
 {
   "name": "@foundocs/foundocs-setup",
-  "version": "0.3.21",
+  "version": "0.3.22",
   "description": "Repeatable project setup and agent skills for the Foundocs remote MCP server",
   "foundocsRelease": {
-    "summary": "Update managed MCP runtime pins, skills and hooks together, including existing installations through one update command."
+    "summary": "Capture meaningful verified achievements in the same turn, including PR merges and releases, even without a hook checkpoint; preserve precise phase completion and duplicate-safe retries."
   },
   "type": "module",
   "bin": {
