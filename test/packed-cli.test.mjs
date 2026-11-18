@@ -125,8 +125,11 @@ globalThis.fetch = async (url, options) => {
     const assetNames = ['SKILL.md', 'references/writing-guide.md'];
     for (const name of assetNames) assert.equal(await readFile(join(skillRoot, name), 'utf8'), await readFile(join(extracted, 'skills/foundocs-capture-knowledge', name), 'utf8'));
     const foundocsRoot = join(root, client === 'codex' ? '.agents' : '.claude', 'skills/foundocs');
-    const foundocsAssets = ['SKILL.md', 'references/configuration.md', 'references/documents.md', 'references/dreaming.md', 'references/updates.md', 'references/effect-measurement.md', 'scripts/check-update.mjs', 'scripts/session-start.mjs'];
+    const foundocsAssets = ['SKILL.md', 'references/configuration.md', 'references/documents.md', 'references/dreaming.md', 'references/updates.md', 'references/effect-measurement.md', 'scripts/check-update.mjs', 'scripts/session-start.mjs', 'scripts/episode-checkpoint.mjs'];
     for (const name of foundocsAssets) assert.equal(await readFile(join(foundocsRoot, name), 'utf8'), await readFile(join(extracted, 'skills/foundocs', name), 'utf8'));
+    const episodeRoot = join(root, client === 'codex' ? '.agents' : '.claude', 'skills/foundocs-capture-episode');
+    const episodeAssets = ['SKILL.md', 'references/capture.md'];
+    for (const name of episodeAssets) assert.equal(await readFile(join(episodeRoot, name), 'utf8'), await readFile(join(extracted, 'skills/foundocs-capture-episode', name), 'utf8'));
     const packageVersion = JSON.parse(await readFile(join(extracted, 'package.json'), 'utf8')).version;
     assert.equal(JSON.parse(await readFile(join(foundocsRoot, 'release.json'), 'utf8')).version, packageVersion);
     const [installationName] = await readdir(join(storage, 'projects'));
@@ -241,6 +244,7 @@ globalThis.fetch = async (url, options) => {
     assert.ok((await readFile(join(root, 'AGENTS.md'), 'utf8')).includes(`](${skillRelative}/SKILL.md)`));
     for (const name of foundocsAssets) assert.equal(await readFile(join(foundocsRoot, name), 'utf8'), await readFile(join(extracted, 'skills/foundocs', name), 'utf8'));
     assert.equal(JSON.parse(await readFile(join(foundocsRoot, 'release.json'), 'utf8')).version, packageVersion);
+    for (const name of episodeAssets) assert.equal(await readFile(join(episodeRoot, name), 'utf8'), await readFile(join(extracted, 'skills/foundocs-capture-episode', name), 'utf8'));
     const checkerScript = join(foundocsRoot, 'scripts/check-update.mjs');
     const check = async (checkerEnv, extra = []) => JSON.parse((await exec(process.execPath,
       [checkerScript, '--root', root, ...extra], { cwd: root, env: { ...checkerEnv, PATH: '' } })).stdout);
