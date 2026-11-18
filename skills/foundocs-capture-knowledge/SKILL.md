@@ -5,7 +5,7 @@ description: Save durable project context explicitly provided by the user, lasti
 
 # Capture Foundocs knowledge
 
-Verified achievements and work milestones belong in [foundocs-capture-episode](../foundocs-capture-episode/SKILL.md), not in knowledge as completion logs. Capture meaningful outcomes in the same turn even when no new reusable knowledge arose; use this skill separately for lasting rules, decisions and lessons.
+Verified achievements and work milestones belong in [foundocs-capture-episode](../foundocs-capture-episode/SKILL.md), not in knowledge as completion logs. Batch small tasks into one episode at the work package's delivery boundary, such as PR submission or completed service rollout; saving knowledge or finishing an intermediate step does not itself warrant an episode. Use this skill separately for lasting rules, decisions and lessons.
 
 Keep information that will improve a later decision or avoid repeated investigation. Use the current task context; if there is no worthwhile candidate, stop without collection calls, writes or a collection report. Do not reload whole conversations or invoke additional models or subagents solely to collect knowledge.
 

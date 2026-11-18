@@ -206,11 +206,14 @@ host trust, approvals or sandbox settings. Confirm actual hook execution and
 remote `capture_episode` plus local `episode_checkpoint` tool discovery after
 reconnecting; installed files alone do not prove activation.
 
-The current host records meaningful verified achievements in the same turn,
-including completed features/fixes, merged PRs and published releases, without
-waiting for a reminder. It also judges important confirmed decisions, discoveries
-and concrete blockers. Before finishing, it checks current context for missed
-outcomes, distinguishing implementation, merge, release and production verification.
+The current host batches related small edits, investigations and tests into one
+episode at a meaningful delivery boundary, such as PR submission or a completed
+service rollout. If the authorized work continues through merge and release, it
+captures once at the final intended boundary. Individual successes, knowledge saves
+and turn endings do not trigger episodes; intermediate checkpoints are skipped
+locally. Substantial standalone decisions or blockers and explicit user requests
+remain supported. Records distinguish implementation, merge, release and production
+verification rather than claiming unfinished stages are complete.
 Episodes read as short stories or retrospectives, using a TL;DR, Markdown headings
 and bullets to explain context, changes and meaning. Test counts and commit hashes
 belong in structured evidence by default, not in the narrative.

@@ -4,7 +4,7 @@ Read current live tool schemas. Every remote call uses the exact configured proj
 
 ## Write one coherent story
 
-An episode should read like one story, diary entry or short retrospective. Its value is the context and change a future reader can understand, not proof that the agent ran commands. Let the reader follow what was awkward or needed attention, what was chosen and changed, and what that means now. Use only facts and reasons supported by the task; do not fabricate emotions, dialogue, user reactions, metrics or a dramatic lesson. A small result may deserve a small story.
+An episode should read like one story, diary entry or short retrospective. Its value is the context and change a future reader can understand, not proof that the agent ran commands. Let the reader follow what was awkward or needed attention, what was chosen and changed, and what that means now. Use only facts and reasons supported by the task; do not fabricate emotions, dialogue, user reactions, metrics or a dramatic lesson. A small work package may deserve a short story once its delivery boundary is reached; individual steps within it do not each deserve a story.
 
 - Give the episode a title about the change or insight, rather than a ticket, commit or test result.
 - Put a short plain-language TL;DR in `summary[0]`, so the list preview conveys the story. The entire summary remains 2–4 Markdown blocks, each within the live tool's character limit.
@@ -45,6 +45,8 @@ The host supplies semantic judgments from current task context; the server valid
 
 ## Stable goals and phases
 
+Use the work package and its intended delivery boundary, not each small fix, test, commit or turn, as the capture unit. Opening a PR and then continuing to merge and deploy in the same authorized task is one package: wait for the final intended boundary. If work is handed off at the PR, one in-progress episode can describe that package; a later confirmed rollout can continue it under the version/phase rules below.
+
 Reuse taskKey across turns and sessions for the same explicit user goal: use a known card/task ID, or mint a persistent goal identity once and reuse the server record. Search a focused goal/topic before creating another identity when continuity is plausible. A session, date or checkpoint is **not** a goal or phase. One session can contain several goals.
 
 Use an explicit boundaryKey for the goal's phase. Read the matching episode and current version before updating. Set expectedEpisodeVersion:0 only for a new boundary; positive observed version for an existing one. Add genuinely new evidence/links; wording-only changes are not progress. Completed/cancelled phases require a new boundaryKey and previousEpisodeId for later activity. Explicit factual corrections use correction:true, observed version and preserve prior status/timestamps/previousEpisodeId. On VERSION_CONFLICT or NOVELTY_REQUIRED, reread and reassess; do not blindly increment versions.
@@ -74,12 +76,12 @@ Prefer local MCP episode_checkpoint with operation set to the command below and 
       "taskKey":"TASK-STABLE-ID",
       "boundaryKey":"implementation",
       "kind":"milestone",
-      "observation":"Focused tests passed; the PR is awaiting review.",
-      "evidence":[{"kind":"verification","sourceRef":"test:OBSERVED-RUN-ID","label":"Focused tests","detail":"The observed test command passed."}],
+      "observation":"The PR containing the related fixes was submitted for review; this task ends at that handoff.",
+      "evidence":[{"kind":"artifact","sourceRef":"pr:OBSERVED-PR-URL","label":"Submitted PR","detail":"The observed PR contains the related fixes and is awaiting review."}],
       "links":[]
     },
-    "judgment":{"significance":"important","novelty":"new","grounding":"confirmed","outcome":"partial","reason":"Verified implementation milestone with review remaining.","evidenceRefs":["test:OBSERVED-RUN-ID"]},
-    "episode":{"title":"Implementation ready for review","summary":["The requested change passes its focused tests.","Review and integration checks remain."],"kind":"milestone","status":"in_progress","tags":[],"remainingWork":"Review and integration checks"},
+    "judgment":{"significance":"important","novelty":"new","grounding":"confirmed","outcome":"partial","reason":"The work package reached its authorized PR handoff boundary; review remains.","evidenceRefs":["pr:OBSERVED-PR-URL"]},
+    "episode":{"title":"Related fixes submitted for review","summary":["The related fixes are collected in one PR for review.","This task ends at PR submission; review and integration checks remain."],"kind":"milestone","status":"in_progress","tags":[],"remainingWork":"Review and integration checks"},
     "expectedEpisodeVersion":0
   }
 }
