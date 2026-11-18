@@ -18,6 +18,8 @@ For documents within the user's request or approval, use `kind: "document"`, `ca
 
 ## Existing items
 
+If the relevant knowledge is global or an original linked to global knowledge, follow [the global approval workflow](../../foundocs/references/documents.md#global-documents-and-knowledge) for any edit or move. Ordinary automatic capture authorizes writes to project-only knowledge.
+
 Read the current target before changing it. Use `update_doc` with the ID and observed `versionToken`; send only changed metadata and either a complete `bodyMarkdown` or sequential exact edits, never both. Each edit's `oldText` must match exactly once at that step. Read the full body before replacing it; do not replace unread text with a search excerpt or partial chunk. The original creation date is immutable.
 
 If equivalent knowledge already exists, leave it unchanged. Merge new explicit user-provided context or verified findings into the same topic while preserving unrelated content and distinguishing their evidence. For contradictions, apply an explicit user correction with its source; otherwise clarify whether the new statement corrects the old one before replacing disputed knowledge. Collection alone does not authorize deleting or archiving old items. For an explicit manual archive or restore request, follow [the Foundocs manual archival guidance](../../foundocs/SKILL.md#manual-archival-and-restoration).
