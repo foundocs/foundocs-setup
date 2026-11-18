@@ -69,7 +69,7 @@ head [-n N] [--] PATH
 tail [-n N] [--] PATH
 ```
 
-- Paths are absolute within the selected project: `/docs/` and `/knowledge/{rules,decisions,learnings}/`. Commands with optional paths default to `/`; prefer the smallest relevant subtree. `ls` lists immediate children; `find` and `rg --files` discover paths recursively.
+- Use absolute virtual paths. Project contents appear under `/docs/` and `/knowledge/{rules,decisions,learnings}/`. On supported servers, global contents appear under `/shared/docs/` and `/shared/knowledge/`. Commands with optional paths default to `/`. Prefer the smallest relevant subtree. `ls` lists immediate children, and `find` and `rg --files` discover paths recursively.
 - For search, `-n` includes line numbers, `-l` returns matching filenames, `-i` ignores case, and `-C N` adds up to 100 context lines on either side. Use a separate count (`-C 3`, not `-C3`). `grep -r` is accepted; `rg` is already recursive.
 - Patterns match literal text or quoted alternatives such as `'session|token'`. Use `-F` for literal regex punctuation or a literal `|`. General regex is unsupported; `grep -E` only selects the same alternatives mode.
 - Globs support `*`, `**` and `?`. Slashless globs match basenames. Quote globs; `rg -g '!GLOB'` excludes matches, while `grep --include=GLOB` only accepts positive globs.
