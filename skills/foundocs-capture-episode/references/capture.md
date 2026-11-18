@@ -1,14 +1,14 @@
 # Capture, retry and continuity
 
-Read current live tool schemas. Every remote call uses the exact configured project_id. Tools are `capture_episode`, `search_episodes`, `get_episode`, `get_episode_candidates`, `get_episode_candidate`, `get_episode_revisions`. If capture or recall is unavailable, locally skip; do not write another content kind. Authentication/access/configuration failures stop Foundocs calls.
+Read current live tool schemas. Every remote call uses the exact configured project_id. Tools are `capture_episode`, `search_episodes`, `get_episode`, `get_episode_candidates`, `get_episode_candidate`, `get_episode_revisions`. If capture or required recall is unavailable, skip (acknowledge locally only when a trusted checkpoint exists); do not write another content kind. Authentication/access/configuration failures stop Foundocs calls.
 
 ## Select and ground
 
 The host supplies semantic judgments from current task context; the server validates structure, evidence references, state, novelty, versions and authority. It does not independently verify a conversation. No keyword or message-length heuristic decides importance.
 
 - `judgment`: significance `important|routine|uncertain`, novelty `new|duplicate|uncertain`, grounding `confirmed|proposed|uncertain`, outcome `succeeded|failed|partial|unknown`, reason (<=1000), evidenceRefs (matching submitted evidence sourceRef). Routine/duplicate host events stay local. Use null or uncertain for a worthwhile event that cannot yet be judged; the server defers it.
-- `event`: taskKey, boundaryKey, kind (`result|decision|discovery|blocker|milestone`), observation (<=3000), evidence and links. The helper assigns sourceEventId, sessionId and occurredAt. Supply occurredAt only for an observed past event, never guess a completion time.
-- `episode`: title <=120; summary array of 2–4 sentences (each <=600); kind; status `in_progress|completed|blocked|cancelled`; tags; remainingWork (<=1000 or null); optional previousEpisodeId. Prefer substantially shorter content.
+- `event`: taskKey, boundaryKey, kind (`result|decision|discovery|blocker|milestone`), observation (<=3000), evidence and links. The checkpoint helper assigns sourceEventId, sessionId and occurredAt. For direct capture, use the identity/time rules below. Never guess a completion time.
+- `episode`: title <=120; summary array of 2–4 concise Markdown blocks (each <=600), starting with a short TL;DR paragraph; kind; status `in_progress|completed|blocked|cancelled`; tags; remainingWork (<=1000 or null); optional previousEpisodeId. Prefer substantially shorter content.
 - `completed` requires `outcome:succeeded` and `remainingWork:null`. A completed decision means the choice is settled, not its implementation. State remaining implementation in the summary. `result` with outcome unknown must defer. Confirmed decision/discovery/blocker/milestone may record while overall outcome is unknown.
 - Evidence: kind `user_statement|artifact|verification|observation`, stable sourceRef, label, detail <=1000, optional safe HTTP(S) URL. Decision needs explicit user_statement; result/discovery and ordinary completion need artifact or verification. Keep only brief supported facts, never source dumps. Input evidence/links <=20 each.
 - Links: `{contentId,relation:"related|used|produced|supports",observedVersion?}` from observed same-project content. Do not invent IDs, permissions or old document bodies.
@@ -18,6 +18,18 @@ The host supplies semantic judgments from current task context; the server valid
 Reuse taskKey across turns and sessions for the same explicit user goal: use a known card/task ID, or mint a persistent goal identity once and reuse the server record. Search a focused goal/topic before creating another identity when continuity is plausible. A session, date or checkpoint is **not** a goal or phase. One session can contain several goals.
 
 Use an explicit boundaryKey for the goal's phase. Read the matching episode and current version before updating. Set expectedEpisodeVersion:0 only for a new boundary; positive observed version for an existing one. Add genuinely new evidence/links; wording-only changes are not progress. Completed/cancelled phases require a new boundaryKey and previousEpisodeId for later activity. Explicit factual corrections use correction:true, observed version and preserve prior status/timestamps/previousEpisodeId. On VERSION_CONFLICT or NOVELTY_REQUIRED, reread and reassess; do not blindly increment versions.
+
+## Direct remote capture without a checkpoint
+
+Use this path only when automatic episode capture is enabled and no trusted checkpoint/local helper path is available. Hook support is not required by the remote API. Do not use it to evade an opt-out, permission error, failed prepare or an existing pending outbox request.
+
+1. Use the same configured project and observed goal/phase identity. Search the relevant task/topic for an existing episode; read its current version before updating. A completed phase continues under a new boundary and `previousEpisodeId`. This applies across sessions and capture paths.
+2. For a new event, create a fresh UUID `requestId` once and keep the full payload in current task context. Use a stable `sourceEventId` from the observed artifact/event (for example a repository + PR number + merge commit); if none exists, generate an event UUID once and retain it for retries. Do not derive taskKey or boundaryKey from the session or timestamp. Omit sessionId unless the current host actually supplied it.
+3. Use the verified event timestamp for a past result, or the current observed time for a newly observed event; do not invent a historical time. Submit brief typed evidence, its exact sourceRefs in judgment.evidenceRefs, and the episode with the observed version (0 only for a new boundary). Call `capture_episode` directly with that payload.
+4. Inspect the returned disposition and episode. `deferred` has not produced a visible episode; read the candidate before reassessing a known judgment/scope error with its observed candidate version. Do not blindly recreate the event or claim success.
+5. After an uncertain response, retry at most once in the current attempt with the identical requestId and payload. If still uncertain, report that state. Without a persistent outbox, a later session must recover current server episode/candidate state by the known goal/event before writing; never invent the lost request or reissue it with a new ID. Definite version conflicts require the normal reread/reconciliation rules.
+
+Do not create local project journals or enable private storage merely for this fallback. This path records a confirmed outcome using the current host; it does not run a background model.
 
 ## Private prepare → remote call → acknowledgment
 

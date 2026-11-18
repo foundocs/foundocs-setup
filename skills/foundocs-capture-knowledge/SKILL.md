@@ -5,6 +5,8 @@ description: Save durable project context explicitly provided by the user, lasti
 
 # Capture Foundocs knowledge
 
+Verified achievements and work milestones belong in [foundocs-capture-episode](../foundocs-capture-episode/SKILL.md), not in knowledge as completion logs. Capture meaningful outcomes in the same turn even when no new reusable knowledge arose; use this skill separately for lasting rules, decisions and lessons.
+
 Keep information that will improve a later decision or avoid repeated investigation. Use the current task context; if there is no worthwhile candidate, stop without collection calls, writes or a collection report. Do not reload whole conversations or invoke additional models or subagents solely to collect knowledge.
 
 When the user explicitly provides durable information about their project, capture it in the same turn without waiting for a separate request to remember or save. Search narrowly for related knowledge, merge into the same topic or create an item, and confirm the write succeeded before ending the turn. An acknowledgment such as "Understood" or "I'll remember" is not a substitute for persistence. If blocked by configuration, access, an unresolved contradiction or a write failure, explain that the information has not been saved and what is needed.

@@ -206,8 +206,14 @@ host trust, approvals or sandbox settings. Confirm actual hook execution and
 remote `capture_episode` plus local `episode_checkpoint` tool discovery after
 reconnecting; installed files alone do not prove activation.
 
-The current host judges important confirmed decisions, verified results and
-discoveries, concrete blockers and milestones during ordinary work. Routine
+The current host records meaningful verified achievements in the same turn,
+including completed features/fixes, merged PRs and published releases, without
+waiting for a reminder. It also judges important confirmed decisions, discoveries
+and concrete blockers. Before finishing, it checks current context for missed
+outcomes, distinguishing implementation, merge, release and production verification.
+Hooks are reminders and retry aids: an enabled project can use remote capture
+without a checkpoint, with stable goal/event identities and bounded identical retries.
+That direct path has no persistent local outbox; see the episode capture contract. Routine
 turns are acknowledged locally without creating remote candidates. Private
 checkpoint state contains only minimal identifiers; prepared requests contain
 brief evidence, never transcripts. The bounded outbox preserves the exact
