@@ -2,6 +2,36 @@
 
 Read current live tool schemas. Every remote call uses the exact configured project_id. Tools are `capture_episode`, `search_episodes`, `get_episode`, `get_episode_candidates`, `get_episode_candidate`, `get_episode_revisions`. If capture or required recall is unavailable, skip (acknowledge locally only when a trusted checkpoint exists); do not write another content kind. Authentication/access/configuration failures stop Foundocs calls.
 
+## Write one coherent story
+
+An episode should read like one story, diary entry or short retrospective. Its value is the context and change a future reader can understand, not proof that the agent ran commands. Let the reader follow what was awkward or needed attention, what was chosen and changed, and what that means now. Use only facts and reasons supported by the task; do not fabricate emotions, dialogue, user reactions, metrics or a dramatic lesson. A small result may deserve a small story.
+
+- Give the episode a title about the change or insight, rather than a ticket, commit or test result.
+- Put a short plain-language TL;DR in `summary[0]`, so the list preview conveys the story. The entire summary remains 2–4 Markdown blocks, each within the live tool's character limit.
+- Use `##` or `###` headings for meaningful parts of the story and blank lines between paragraphs. Use bullet lists for parallel changes or observations. A block can contain a heading, prose and a list; blocks are not restricted to single sentences. Do not force every episode into the same headings or a chronological activity log.
+- Explain concrete changes through the experience they affect. Keep relevant uncertainty or unfinished scope in plain language, and use the structured status/remainingWork fields accurately.
+- Omit test-pass counts, commit hashes, command names, build logs and checklist receipts from narrative prose by default. Keep required artifact and verification references in `event.evidence` (and relevant content links in `event.links`). Include a technical detail in prose only when it is the subject of the story or essential to understanding the change.
+
+For a sidebar UX change, a narrative could look like this when supported by the task:
+
+```markdown
+The sidebar now separates choosing a workspace from finding a project. What began as a request for a clearer project list also helped simplify the menu hierarchy.
+
+## Giving each choice its own place
+
+The old switcher mixed workspaces and projects, so the design gave them separate places:
+
+- A workspace-only switcher at the top.
+- A project list directly underneath, with pages for longer lists.
+- A persistent workspace settings button at the bottom.
+
+## Removing a label that no longer helped
+
+Once the projects were visible, another “Project” heading above Overview and Episodes felt redundant. Removing it let those two entries read as the project's starting points while the other groups kept their meaning. The development and merge are complete; this account does not claim a production rollout.
+```
+
+This illustrates narrative flow and Markdown, not mandatory wording or sections. Do not copy its facts to another task. The PR, checks and exact revision belong in the evidence fields rather than being appended as an audit block.
+
 ## Select and ground
 
 The host supplies semantic judgments from current task context; the server validates structure, evidence references, state, novelty, versions and authority. It does not independently verify a conversation. No keyword or message-length heuristic decides importance.

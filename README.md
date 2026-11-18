@@ -211,6 +211,9 @@ including completed features/fixes, merged PRs and published releases, without
 waiting for a reminder. It also judges important confirmed decisions, discoveries
 and concrete blockers. Before finishing, it checks current context for missed
 outcomes, distinguishing implementation, merge, release and production verification.
+Episodes read as short stories or retrospectives, using a TL;DR, Markdown headings
+and bullets to explain context, changes and meaning. Test counts and commit hashes
+belong in structured evidence by default, not in the narrative.
 Hooks are reminders and retry aids: an enabled project can use remote capture
 without a checkpoint, with stable goal/event identities and bounded identical retries.
 That direct path has no persistent local outbox; see the episode capture contract. Routine

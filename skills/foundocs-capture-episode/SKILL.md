@@ -1,6 +1,6 @@
 ---
 name: foundocs-capture-episode
-description: Automatically record meaningful verified achievements during ordinary work, including completed features or fixes, merged PRs and published releases, plus confirmed decisions, discoveries and concrete blockers. Capture in the same turn without a reminder, even without a hook checkpoint. Skip routine steps, duplicate reports and bookkeeping.
+description: Automatically record meaningful verified achievements as concise stories or retrospectives during ordinary work, including completed features or fixes, merged PRs and published releases, plus confirmed decisions, discoveries and concrete blockers. Capture in the same turn without a reminder, even without a hook checkpoint. Skip routine steps, duplicate reports and bookkeeping.
 ---
 
 # Selective episode capture
@@ -15,7 +15,7 @@ A confirmed decision, verified discovery or concrete blocker can also be worth k
 
 Describe the completed scope precisely. A PR opened with review or required CI outstanding is `in_progress`, with `remainingWork`. A verified merge can complete the development-and-merge phase when deployment is outside that phase; say explicitly that release or production verification has not been performed. If deployment is part of the current phase and remains, keep it `in_progress`. Do not invent later requirements to prevent an otherwise finished phase from completing. `completed` requires confirmed success and `remainingWork:null`; unknown results are deferred, never reported as success.
 
-Write 2–4 concise Markdown blocks in the user's language: a short plain-language TL;DR first, followed by the useful outcome, evidence and scope. Use headings only when they help. No transcripts, private reasoning, raw logs, secrets or speculative conclusions. Knowledge capture is separate: link useful knowledge instead of repeating it, and save lasting rules or reusable lessons through the knowledge skill.
+Write one coherent story, diary entry or short retrospective in the user's language, not an execution report. Connect the situation or friction, the choice and changes, and what is different now; use only known context and never invent feelings, motives or impact. Start with a short TL;DR, then use meaningful Markdown headings and bullets where they make the story easier to read, especially for concrete changes. Keep test counts, commit hashes and command output out of the prose by default; put verification and artifact references in the structured evidence fields. Read [the writing guidance and example](references/capture.md#write-one-coherent-story). Knowledge capture is separate: link useful knowledge instead of repeating it, and save lasting rules or reusable lessons through the knowledge skill.
 
 ## Choose the available capture path
 
