@@ -57,7 +57,7 @@ export async function sessionStart(args, hookInput = {}) {
       : isClaude && typeof hookInput.session_id === 'string' && /^[0-9a-f-]{36}$/.test(hookInput.session_id) && typeof hookInput.transcript_path === 'string' && isAbsolute(hookInput.transcript_path)
       ? { client: 'claude_code', sessionId: hookInput.session_id, transcriptPath: hookInput.transcript_path } : null;
     if (result.status !== 'updated' && !host) return null;
-    const context = [result.status === 'updated' ? `Foundocs skills and MCP runtime configuration updated to ${result.version}. Reconnect or restart MCP to load the new runtime; the running process has not been replaced. Read the installed SKILL.md and review changed hook definitions in the host.` : '', host ? `Foundocs effect measurement host session: ${JSON.stringify(host)}. Pass this host object to measure prepare; the installer reads only current model metadata. Never supply a guessed model.` : ''].filter(Boolean).join('\n');
+    const context = [result.status === 'updated' ? `Foundocs skills and MCP runtime configuration updated to ${result.version}. Reconnect or restart MCP to load the new runtime; the running process has not been replaced. Read the installed SKILL.md and review changed hook definitions in the host.` : '', host ? `Foundocs effect measurement host session: ${JSON.stringify(host)}. Pass this host object as effectTask.host on the first automatic information read (or legacy measure prepare); the installer reads only current model metadata. Never supply a guessed model.` : ''].filter(Boolean).join('\n');
     return { hookSpecificOutput: {
       hookEventName: 'SessionStart',
       additionalContext: context,

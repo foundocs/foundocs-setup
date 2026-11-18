@@ -19,6 +19,8 @@ async function bridge(t, options = {}) {
   await mkdir(root);
   const projectId = randomUUID(), workspaceId = randomUUID();
   const tool = { name: 'get_doc', inputSchema: { type: 'object', properties: { project_id: { type: 'string' } }, required: ['project_id'] }, outputSchema: options.schema ?? outputSchema };
+  const seen = [];
+  const extraTools = options.automatic ? ['get_effect_measurement_policy', 'prepare_effect_measurement', 'report_effect_diagnostic', 'report_retrieval_evaluation'].map(name => ({ name, inputSchema: { type: 'object' } })) : [];
   const server = createServer(async (request, response) => {
     assert.equal(request.headers.authorization, `Bearer ${key}`);
     if (request.method !== 'POST') { response.writeHead(405).end(); return; }
@@ -27,10 +29,15 @@ async function bridge(t, options = {}) {
     if (rpc.method.startsWith('notifications/')) { response.writeHead(202).end(); return; }
     let result;
     if (rpc.method === 'initialize') result = { protocolVersion: '2025-11-25', capabilities: { tools: {} }, serverInfo: { name: 'error-fixture', version: '1' } };
-    if (rpc.method === 'tools/list') result = { tools: [tool] };
+    if (rpc.method === 'tools/list') result = { tools: [tool, ...extraTools] };
     if (rpc.method === 'tools/call') {
+      seen.push(rpc.params);
       if (options.status) { response.writeHead(options.status, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: `${key} ${privateValue}` })); return; }
       result = options.result ?? { content: [{ type: 'text', text: privateValue }], structuredContent: { ok: true, data: { count: 1, unexpected: `${key} ${privateValue}` } } };
+    }
+    if (rpc.method === 'tools/call' && options.automatic && rpc.params.name !== 'get_doc') {
+      const data = rpc.params.name === 'get_effect_measurement_policy' ? { enabled: true } : { recorded: true };
+      result = { structuredContent: { ok: true, data }, content: [{ type: 'text', text: JSON.stringify({ ok: true, data }) }] };
     }
     response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ jsonrpc: '2.0', id: rpc.id, result }));
   });
@@ -48,7 +55,7 @@ async function bridge(t, options = {}) {
   transport.stderr?.on('data', chunk => { stderr += chunk; });
   await client.connect(transport);
   await client.listTools();
-  return { client, call: () => options.raw ? client.request({ method: 'tools/call', params: { name: 'get_doc', arguments: { project_id: projectId } } }) : client.callTool({ name: 'get_doc', arguments: { project_id: projectId } }), server, get stderr() { return stderr; } };
+  return { client, projectId, seen, call: () => options.raw ? client.request({ method: 'tools/call', params: { name: 'get_doc', arguments: { project_id: projectId } } }) : client.callTool({ name: 'get_doc', arguments: { project_id: projectId } }), server, get stderr() { return stderr; } };
 }
 
 for (const scenario of ['extra field', 'missing structured content', 'invalid output schema']) test(`stdio bridge identifies ${scenario} as output validation failure without exposing response data`, async t => {
@@ -94,4 +101,18 @@ test('stdio bridge preserves structured server output validation errors', async 
   const reply = await f.call();
   assert.equal(reply.isError, true);
   assert.deepEqual(reply.structuredContent, structuredContent);
+});
+
+test('installed bridge advertises automatic metadata, keeps it local, and reports missing installation consent without inference', async t => {
+  const f = await bridge(t, { automatic: true, result: { content: [], structuredContent: { ok: true, data: { count: 1 } } } });
+  const tools = await f.client.listTools();
+  assert(tools.tools.find(t => t.name === 'get_doc').inputSchema.properties.effectTask);
+  const taskId = randomUUID();
+  const result = await f.client.callTool({ name: 'get_doc', arguments: { project_id: f.projectId,
+    effectTask: { taskId, question: 'Locate retry config', knownContext: '', criteria: [{ id: 'retry', description: 'Locate it' }] } } });
+  assert.equal(result.structuredContent.ok, true);
+  assert.equal(f.seen.find(c => c.name === 'report_effect_diagnostic').arguments.reason, 'consent_required');
+  const read = f.seen.find(c => c.name === 'get_doc');
+  assert.equal(read.arguments.taskId, taskId); assert(!('effectTask' in read.arguments));
+  assert(!f.seen.some(c => c.name === 'prepare_effect_measurement'));
 });

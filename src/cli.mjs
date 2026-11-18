@@ -4,9 +4,9 @@ import { install, doctor, rollback, updateInstallation, migrate, upgradeRuntime,
 const [command, ...args] = process.argv.slice(2);
 try {
   if (command === '--help' || command === '-h') {
-    process.stdout.write('foundocs-setup install --root ABSOLUTE_PATH < private-input.json\nfoundocs-setup doctor --root ABSOLUTE_PATH\nfoundocs-setup update --root ABSOLUTE_PATH\nfoundocs-setup update-skills --root ABSOLUTE_PATH (alias for update)\nfoundocs-setup rollback --root ABSOLUTE_PATH\nfoundocs-setup migrate --root ABSOLUTE_PATH\nfoundocs-setup upgrade-runtime --root ABSOLUTE_PATH\nfoundocs-setup mcp --project-id UUID\nfoundocs-setup measure prepare|run|flush --root ABSOLUTE_PATH < private-task.json\nInstall reads the one-time code from private stdin only. Never put credentials in argv or shell command text.\n');
+    process.stdout.write('foundocs-setup install --root ABSOLUTE_PATH < private-input.json\nfoundocs-setup doctor --root ABSOLUTE_PATH\nfoundocs-setup update --root ABSOLUTE_PATH\nfoundocs-setup update-skills --root ABSOLUTE_PATH (alias for update)\nfoundocs-setup rollback --root ABSOLUTE_PATH\nfoundocs-setup migrate --root ABSOLUTE_PATH\nfoundocs-setup upgrade-runtime --root ABSOLUTE_PATH\nfoundocs-setup mcp --project-id UUID\nfoundocs-setup measure prepare|run|flush|configure|status --root ABSOLUTE_PATH < private-task.json\nInstall reads the one-time code from private stdin only. Never put credentials in argv or shell command text.\n');
   } else if (command === 'measure') {
-    if (args.length !== 3 || !['prepare', 'run', 'flush'].includes(args[0]) || args[1] !== '--root') throw new SetupError('input', 'Use measure prepare|run|flush --root ABSOLUTE_PATH with JSON on stdin.');
+    if (args.length !== 3 || !['prepare', 'run', 'flush', 'configure', 'status'].includes(args[0]) || args[1] !== '--root') throw new SetupError('input', 'Use measure prepare|run|flush|configure|status --root ABSOLUTE_PATH with JSON on stdin.');
     let input = '';
     for await (const chunk of process.stdin) { input += chunk; if (Buffer.byteLength(input) > 65536) throw new SetupError('input', 'Measurement input exceeds 64 KiB.'); }
     let parsed; try { parsed = JSON.parse(input); } catch { throw new SetupError('input', 'Measurement input must be JSON.'); }

@@ -1,4 +1,24 @@
-# Optional effect measurement: automatic host procedure
+# Automatic measurement in ordinary sessions
+
+Inspect the live read schema first. If it advertises `effectTask`, use the installed local MCP bridge; do not run shell prepare/run alongside it. The bridge cannot infer the original information question or when information acquisition is finished. The host supplies only those boundaries; the installer owns preparation, tracking and execution.
+
+1. Before the first index/TL;DR/search/content read for a new information question, pass `effectTask: {taskId, question, knownContext, criteria, host}` with the same brief constraints below. Use the trusted SessionStart host object (or the current CODEX_THREAD_ID); never choose another session or a guessed model. Do not send an answer or reconstruct a brief after exposure.
+2. On every subsequent read/cursor/chunk, pass `effectTask: {taskId}`. Do not supply effectPreparationId yourself. The bridge checks policy, reads installation consent, freezes original sources and identifies the working model BEFORE forwarding the first read. OFF or unsupported/unconsented preparation continues ordinary reads with a diagnostic, never a replacement model.
+3. Evaluate every returned retrieval normally, adding `effectTaskId: taskId`. On the final evaluation after all information reads/evaluations, add `effectTaskComplete: true`. This is the explicit information-acquisition boundary, not an individual useful read. The bridge automatically executes at most once in the background after a successful final evaluation. Never keep reading the same question under a new task ID to create a second sample. If evaluation is incomplete, finish the missing evaluations and mark the final one.
+4. The bridge persists normalized status and reports skip/failure reasons for Insights. Reconnection flushes observed reports/status only; it never respawns interrupted probes. A host process shutdown can interrupt a comparison; missing usage stays unknown. Do not claim an MCP evaluation response means the comparison has completed.
+
+## One-time installation consent and readiness
+
+Project policy ON is not local installation consent. At installation, explain that the allowlisted original sources and actually delivered Foundocs text are sent to the current model provider (OpenAI/Codex or Anthropic/Claude), and two independent probes incur additional usage. Obtain explicit consent and a relative source allowlist once, then persist through `measure configure --root ABSOLUTE_ROOT` with private stdin JSON:
+
+```json
+{"enabled":true,"consentVersion":1,"shareProjectDataWithWorkingModel":true,"additionalModelUsage":true,"allowlist":["src"],"excludePaths":[]}
+```
+
+Use actual approved source paths, not this example blindly. Existing setup can configure without a new code; new install input may include the same object as `effectMeasurement`. `{"enabled":false}` revokes local consent; the running coordinator checks it before each arm and heartbeat. `measure status` with `{}` diagnoses consent, supported CLI/login and remote connection without inference. Host MCP/process/filesystem/network permissions are independent. Never disable sandboxing, bypass approval rejection, or claim installation consent grants OS/host permissions. Explain actual restrictions and obtain only needed host approval. Ordinary access remains available when declined. MCP reconnect loads updated runtime/schema; SessionStart supplies current session metadata.
+
+## Legacy CLI procedure (only without automatic fields)
+
 
 This is a host-agent procedure, not a request for the user to type commands. Run it automatically on a supported shell-capable host when the project's policy is ON. Never enable the project's policy yourself. Normal Foundocs work continues if a sample is unavailable, with the reason reported. Do not silently fall back to another model/runner.
 

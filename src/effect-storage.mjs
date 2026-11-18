@@ -74,6 +74,8 @@ export async function cleanExpired(base, now = Date.now()) {
     if (!UUID.test(name)) continue;
     const path = join(base, name), st = await lstat(path);
     if (!st.isDirectory() || st.isSymbolicLink()) throw new EffectError('unsafe_storage');
+    const automatic = await readJson(join(path, 'automatic.json')).catch(e => { if (e.code !== 'ENOENT') throw e; return null; });
+    if (automatic && Date.parse(automatic.expiresAt) <= now) await rm(join(path, 'automatic.json'), { force: true });
     const state = await readJson(join(path, 'state.json')).catch(e => { if (e.code !== 'ENOENT') throw e; return null; });
     if (!state) { if (st.mtimeMs + 86400000 <= now) await rm(path, { recursive: true, force: true }); continue; }
     const retention = Date.parse(state.settlementExpiresAt ?? state.expiresAt);
