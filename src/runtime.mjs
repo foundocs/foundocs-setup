@@ -72,5 +72,27 @@ export async function startRuntime(projectId, options = {}) {
     // Optional measurement cleanup must not disable ordinary authenticated MCP.
     process.stderr.write('Foundocs measurement cleanup unavailable; ordinary MCP continues. Run measure diagnostics before another sample.\n');
   }
-  await runBridge(manifest);
+  const { directory } = await loadInstallation(manifest.root, options);
+  await runBridge({ ...manifest, automaticBase: join(directory, 'effects'), automaticFactory: async ({ recovery = false } = {}) => {
+    const { EffectCoordinator } = await import('./effect.mjs');
+    const { readAutomaticConsent } = await import('./effect-config.mjs');
+    const { connectEffectRemote } = await import('./effect-remote.mjs');
+    // A fresh remote is scoped to this installation. Coordinator run owns its lifetime.
+    const config = await readAutomaticConsent(directory);
+    if (!config.enabled && !recovery) return { config };
+    const remote = await connectEffectRemote(manifest);
+    const scopedRemote = { call: async (name, args) => {
+      if (name === 'control_effect_measurement' && ['start_arm', 'heartbeat'].includes(args.action)) {
+        const current = await readAutomaticConsent(directory);
+        if (!current.enabled || JSON.stringify(current) !== JSON.stringify(config)) return { action: 'stop', policyRevision: args.policyRevision, reason: 'cancelled' };
+      }
+      return remote.call(name, args);
+    } };
+    const coordinator = new EffectCoordinator({ root: manifest.root, base: join(directory, 'effects'), remote: scopedRemote });
+    return { config, coordinator: {
+      async prepare(input) { try { return await coordinator.prepare(input); } finally { await remote.close(); } },
+      async flush(taskId) { try { return await coordinator.flush(taskId); } finally { await remote.close(); } },
+      async run(input) { try { return await coordinator.run(input); } finally { await remote.close(); } },
+    } };
+  } });
 }

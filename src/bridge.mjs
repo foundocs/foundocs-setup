@@ -7,6 +7,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 import { readCredential } from './auth.mjs';
 import { pathToFileURL } from 'node:url';
 import { resolve, dirname } from 'node:path';
+import { AutomaticMeasurement, automaticTool, automaticStore } from './effect-automatic.mjs';
 import { episodeCheckpoint } from '../skills/foundocs/scripts/episode-checkpoint.mjs';
 
 // Forward only a stable category and safe context, never raw remote messages or data.
@@ -46,7 +47,8 @@ function requestError(error, name) {
     { code, retryable, ...(tool ? { tool } : {}), ...(httpStatus !== undefined ? { httpStatus } : {}), ...(remoteCode !== undefined ? { remoteCode } : {}) });
 }
 
-export async function runBridge({ credentialPath, projectId, workspaceId, mcpUrl: endpoint, root, client }) {
+export async function runBridge({ credentialPath, projectId, workspaceId, mcpUrl: endpoint, root, client, automaticFactory, automaticBase }) {
+let automatic, automaticSupported = false, recovered = false;
 let remote, local, checkpointRoute = 'remote', checkpointWasLocal = false;
 const checkpointTool = {
   name: 'episode_checkpoint',
@@ -59,6 +61,7 @@ const checkpointTool = {
   annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false, idempotentHint: false },
 };
 async function close() {
+  await automatic?.drain();
   await remote?.close().catch(() => {});
   await local?.close().catch(() => {});
 }
@@ -75,6 +78,16 @@ try {
     },
   });
   await remote.connect(transport, { timeout: 20000 });
+  if (automaticFactory && automaticBase) automatic = new AutomaticMeasurement({ projectId,
+    factory: automaticFactory, store: automaticStore(automaticBase), warn: message => process.stderr.write(message + '\n'),
+    remote: async (name, args, raw = false) => {
+      const result = await remote.callTool({ name, arguments: { ...args, project_id: args.project_id ?? projectId } });
+      if (raw) return result;
+      const body = result.structuredContent ?? JSON.parse(result.content.find(c => c.type === 'text').text);
+      if (!body.ok || result.isError) { const error = new Error('Measurement request failed'); error.code = body.error?.code; throw error; }
+      return body.data;
+    },
+  });
   local = new Server({ name: 'foundocs', version: '0.2.0' }, { capabilities: { tools: {} }, instructions: remote.getInstructions() });
   local.setRequestHandler('tools/list', async (request) => {
     try {
@@ -92,7 +105,13 @@ try {
           if (supported) { checkpointWasLocal = true; tools.push(checkpointTool); }
           // Once advertised locally, this name can never start forwarding private
           // checkpoint payloads to a changing remote inventory.
-          return { tools: checkpointRoute === 'blocked' ? tools.filter(tool => tool.name !== checkpointTool.name) : tools };
+          automaticSupported = !!automatic && ['get_effect_measurement_policy', 'prepare_effect_measurement', 'report_effect_diagnostic', 'report_retrieval_evaluation'].every(name => tools.some(tool => tool.name === name));
+          if (automaticSupported && !recovered) {
+            try { await automatic.recover(); } catch { process.stderr.write('Foundocs measurement recovery unavailable; ordinary MCP continues.\n'); }
+            recovered = true;
+          }
+          const visible = checkpointRoute === 'blocked' ? tools.filter(tool => tool.name !== checkpointTool.name) : tools;
+          return { tools: automaticSupported ? visible.map(automaticTool) : visible };
         }
         if (seen.has(result.nextCursor)) throw new Error('tool cursor loop');
         seen.add(result.nextCursor); cursor = result.nextCursor;
@@ -116,7 +135,7 @@ try {
       const response = { ok: true, data };
       return { structuredContent: response, content: [{ type: 'text', text: JSON.stringify(response) }], isError: false };
     }
-    try { return await remote.callTool(request.params); }
+    try { return automaticSupported ? await automatic.call(request.params) : await remote.callTool(request.params); }
     catch (error) { throw requestError(error, request.params.name); }
   });
   local.onerror = () => process.stderr.write('Foundocs local MCP transport error.\n');

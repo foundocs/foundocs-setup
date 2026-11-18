@@ -12,6 +12,7 @@ import { readCredential, windowsPrivateAcl } from './auth.mjs';
 import { legacy, legacyInstructions } from './legacy-compat.mjs';
 import { knowledgePolicy, skillAssets } from './skill-assets.mjs';
 import { newer } from '../skills/foundocs/scripts/check-update.mjs';
+import { validateAutomaticConsent, saveAutomaticConsent, readAutomaticConsent } from './effect-config.mjs';
 import { episodeDiagnostics } from '../skills/foundocs/scripts/episode-checkpoint.mjs';
 
 const exec = promisify(execFile);
@@ -35,6 +36,7 @@ export function validateInput(input) {
   if (!plainObject(input) || input.version !== 1 || !['claude', 'codex'].includes(input.client)) fail('input', 'Unsupported installation input.');
   for (const key of ['projectId', 'workspaceId', 'attemptId']) if (!UUID.test(input[key])) fail('input', `A UUID ${key} is required.`);
   if (typeof input.code !== 'string' || input.code.length < 16 || input.code.length > 512 || /\s/.test(input.code)) fail('input', 'A valid one-time connection code is required.');
+  if (input.effectMeasurement !== undefined) validateAutomaticConsent(input.effectMeasurement);
   validateUrl(input.exchangeUrl); validateUrl(input.mcpUrl);
   return input;
 }
@@ -834,8 +836,9 @@ export async function install(rootPath, rawInput, options = {}) {
       if (error instanceof SetupError) fail('configuration', `${error.message} The installation key is saved; rerun with the same input, or run rollback to undo unchanged setup edits.`, { ...error.details, attemptId: saved.attemptId });
       fail('configuration', 'Configuration write failed. The credential was saved; rerun install with the same input, or run rollback to undo unchanged setup edits.', { attemptId: saved.attemptId });
     }
+    if (input.effectMeasurement !== undefined) await saveAutomaticConsent(rootDirectory, input.effectMeasurement);
     const diagnostic = await (options.diagnose ?? diagnose)(manifest, credentialPath, options);
-    return { ok: true, status: 'configured', root, client, changedFiles: changes.map((entry) => entry.path), reusedCredential, diagnostic, skills: skillsInstalled() };
+    return { ok: true, status: 'configured', root, client, changedFiles: changes.map((entry) => entry.path), reusedCredential, diagnostic, measurement: { consent: (await readAutomaticConsent(rootDirectory)).enabled ? 'accepted' : 'required', hostPermissions: 'unchanged', next: 'Review project data sharing and additional model usage before enabling automatic measurement. Host MCP/process/network permissions must allow the installed runner; the installer never weakens host security.' }, skills: skillsInstalled() };
   });
 }
 
@@ -857,6 +860,7 @@ export async function doctor(rootPath, options = {}) {
   const runtimeFiles = manifest.runtimeVersion ? [] : [manifest.helperPath, ...(manifest.brandingVersion === 2 ? [join(dirname(manifest.helperPath), 'legacy-compat.mjs')] : []), ...(manifest.client === 'codex' ? [join(dirname(manifest.helperPath), 'bridge-v1.mjs')] : [])];
   for (const path of runtimeFiles) if (await textFile(path) === null) fail('diagnostic', 'A durable authentication helper is missing. Rerun install to repair it.', { path });
   const oldFormat = await textFile(join(root, 'foundocs.json')) === null && await textFile(join(root, legacy.config)) !== null;
+  const measurement = { consent: (await readAutomaticConsent(directory)).enabled ? 'accepted' : 'required', hostPermissions: 'unchanged', executionVerified: false };
   const skills = await checkSkills(root, directory, manifest, oldFormat);
   {
     let servers;
@@ -878,7 +882,7 @@ export async function doctor(rootPath, options = {}) {
   if (entries.some((entry) => entry.before !== entry.after)) fail('diagnostic', 'Installation files are incomplete or modified. Rerun install to repair them.');
   const client = await (options.probeClient ?? probeClient)(manifest.client);
   const diagnostic = await (options.diagnose ?? diagnose)(manifest, manifest.credentialPath, options);
-  return { ok: true, status: 'configured', root, client, diagnostic, skills, episodes: { ...await episodeDiagnostics(root, { storageDir: dirname(dirname(directory)) }), runtimeSupport: manifest.runtimeVersion && !newer('0.3.19', manifest.runtimeVersion) ? 'local_checkpoint_available_after_reconnect' : 'upgrade_required', ...(manifest.runtimeVersion && !newer('0.3.19', manifest.runtimeVersion) ? {} : { next: 'Run the current package update command, reconnect MCP and review the host hooks.' }) } };
+  return { ok: true, status: 'configured', root, client, diagnostic, measurement, skills, episodes: { ...await episodeDiagnostics(root, { storageDir: dirname(dirname(directory)) }), runtimeSupport: manifest.runtimeVersion && !newer('0.3.19', manifest.runtimeVersion) ? 'local_checkpoint_available_after_reconnect' : 'upgrade_required', ...(manifest.runtimeVersion && !newer('0.3.19', manifest.runtimeVersion) ? {} : { next: 'Run the current package update command, reconnect MCP and review the host hooks.' }) } };
 }
 
 export async function rollback(rootPath, options = {}) {

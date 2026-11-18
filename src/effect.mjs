@@ -70,7 +70,7 @@ export class EffectCoordinator {
     const outbox = await readJson(join(dir, 'outbox.json')).catch(e => { if (e.code !== 'ENOENT') throw e; return null; });
     if (!outbox) {
       const receipt = await readJson(join(dir, 'receipt.json')).catch(e => { if (e.code !== 'ENOENT') throw e; return null; });
-      if (receipt) return { status: 'already_reported', requestId: receipt.requestId };
+      if (receipt) return { status: 'already_reported', requestId: receipt.requestId, result: receipt.result };
       if (state.reservation && state.probes) {
         const owner = await readJson(join(dir, 'run-lock.json'));
         let alive = true; try { process.kill(owner.pid, 0); } catch (error) { if (error.code === 'ESRCH') alive = false; }
@@ -84,7 +84,7 @@ export class EffectCoordinator {
     if (outbox.rejected) return { status: 'report_rejected', reason: outbox.rejected };
     try {
       const result = await this.remote.call('report_effect_measurement', outbox.payload);
-      await saveJson(join(dir, 'receipt.json'), { reportedAt: new Date().toISOString(), requestId: outbox.payload.requestId });
+      await saveJson(join(dir, 'receipt.json'), { reportedAt: new Date().toISOString(), requestId: outbox.payload.requestId, result });
       await rm(join(dir, 'outbox.json'));
       // Raw sources/context/brief are no longer needed after settlement.
       await rm(join(dir, 'snapshot'), { recursive: true, force: true });
@@ -111,7 +111,7 @@ export class EffectCoordinator {
     if (state.policy.enabled !== true) return { status: 'skipped', reason: 'disabled' };
     if (state.workingModel?.modelSource !== 'working_session') return { status: 'skipped', reason: 'working_model_unavailable' };
     const receipt = await readJson(join(dir, 'receipt.json')).catch(e => { if (e.code !== 'ENOENT') throw e; return null; });
-    if (receipt) return { status: 'already_reported', requestId: receipt.requestId };
+    if (receipt) return { status: 'already_reported', requestId: receipt.requestId, result: receipt.result };
     const lock = join(dir, 'run-lock.json');
     try { await saveJson(lock, { pid: process.pid, attemptId: randomUUID() }, true); }
     catch (e) {
@@ -188,6 +188,15 @@ export class EffectCoordinator {
 export async function measure(action, rootPath, input) {
   const installation = await measurementInstallation(rootPath);
   await cleanExpired(installation.base);
+  if (action === 'configure' || action === 'status') {
+    const { saveAutomaticConsent, readAutomaticConsent, automaticReadiness } = await import('./effect-config.mjs');
+    if (action === 'configure') return saveAutomaticConsent(dirname(installation.base), input);
+    return automaticReadiness({ config: await readAutomaticConsent(dirname(installation.base)),
+      checkCli: () => installation.manifest.client === 'codex' ? codexCapabilities() : capabilities(),
+      identify: () => workingSessionModel(input.host, installation.root),
+      checkConnection: async () => { const remote = await connectEffectRemote(installation.manifest); try { await remote.call('get_effect_measurement_policy', {}); } finally { await remote.close(); } },
+    });
+  }
   if (action === 'prepare' && input.policy?.enabled === false) return { status: 'skipped', reason: 'disabled' };
   const remote = await connectEffectRemote(installation.manifest);
   try {
