@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 
-const writes = new Set(['create_doc', 'update_doc', 'delete_doc', 'set_knowledge_status', 'set_content_status', 'move_knowledge', 'undo_content_move']);
+const writes = new Set(['create_doc', 'update_doc', 'delete_doc', 'set_knowledge_status', 'set_content_status', 'move_docs', 'move_knowledge', 'undo_content_move', 'mutate_shared_content']);
 const stages = [3, 4, 5, 6, 7, 8];
 const stable = value => JSON.stringify(value, (_, v) => v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.keys(v).sort().map(key => [key, v[key]])) : v);
 const unwrap = result => {
@@ -9,13 +9,28 @@ const unwrap = result => {
   return payload?.ok === true ? payload.data : payload;
 };
 
+// Current content reads use path-derived categories. Historical traces and compact
+// pre-unification seeds may still carry a semantic kind and category.
+function knowledgeCategory(item) {
+  if (!item) return undefined;
+  if (/^(?:shared\/)?docs\//.test(item.path)) return /^(?:shared\/)?docs\/knowledge\/(rules|learnings|decisions)\/.+/.exec(item.path)?.[1];
+  if (item.kind === 'knowledge' && ['rules', 'learnings', 'decisions'].includes(item.category)) return item.category;
+}
+
+function sharedOrLinked(item) {
+  return item?.scope === 'shared' || Boolean(item?.sharedLink) || item?.path?.startsWith('shared/');
+}
+
 function pathOnlyKnowledgeMove(source, after) {
   const fields = ['kind', 'category', 'title', 'bodyMarkdown', 'tldr', 'tags', 'created'];
-  if (!source || !after || source.kind !== 'knowledge' || !['rules', 'learnings', 'decisions'].includes(source.category)) return false;
+  const category = knowledgeCategory(source);
+  if (!category || !after || category !== knowledgeCategory(after)) return false;
   if (Object.keys(after).some(key => ![...fields, 'path', 'reason'].includes(key))) return false;
-  if (!fields.every(key => source[key] !== undefined && stable(source[key]) === stable(after[key]))) return false;
+  const authored = { ...source, tags: source.userTags ?? source.tags };
+  if (!fields.every(key => authored[key] !== undefined && stable(authored[key]) === stable(after[key]))) return false;
   if (typeof source.path !== 'string' || typeof after.path !== 'string' || source.path === after.path) return false;
-  if (!after.path.startsWith(`knowledge/${source.category}/`) || !after.path.endsWith('.md') || /[\\\u0000-\u001f\u007f]/u.test(after.path)) return false;
+  const root = source.path.replace(/^shared\//, '').startsWith('docs/') ? 'docs/knowledge' : 'knowledge';
+  if (!after.path.startsWith(`${root}/${category}/`) || !after.path.endsWith('.md') || /[\\\u0000-\u001f\u007f]/u.test(after.path)) return false;
   return after.path.split('/').every(part => part && part !== '.' && part !== '..') && !['INDEX.md', '.md'].includes(after.path.split('/').at(-1));
 }
 
@@ -79,6 +94,7 @@ export function evaluateTrace(fixture, trace) {
       check(args.approval?.source === 'human_chat' && typeof args.approval?.text === 'string' && args.approval.text.trim().length > 0 && args.approval.text.trim().length <= 500, `${prefix}Invalid archive approval excerpt.`);
       check(Boolean(proposal) && proposal.revision === args.revision && proposal.hash === args.hash, `${prefix}Archive approval differs from the observed proposal.`);
       check(proposal?.mutations?.length > 0 && proposal.mutations.every(m => m.type === 'archive'), `${prefix}Chat approval is restricted to archive-only proposals.`);
+      check(!proposal?.targets?.some(ref => sharedOrLinked(ref) || sharedOrLinked(targets.get(ref.contentId))), `${prefix}Shared or linked proposals require human UI review.`);
       check(typeof args.requestId === 'string' && args.requestId.length > 0, `${prefix}Archive approval requestId is missing.`);
       if (approvalRequests.has(args.requestId)) check(approvalRequests.get(args.requestId) === stable(args), `${prefix}Changed archive approval reused requestId.`);
       else approvalRequests.set(args.requestId, stable(args));
@@ -122,7 +138,7 @@ export function evaluateTrace(fixture, trace) {
         }
         for (const mutation of candidate.mutations ?? []) {
           seenMutations.push(mutation);
-          if (mutation.type === 'create') check(mutation.after?.kind !== 'document', `${prefix}Documents permit archive proposals only.`);
+          if (mutation.type === 'create') check(Boolean(knowledgeCategory(mutation.after)), `${prefix}Documents permit archive proposals only.`);
           if (!rejected && mutation.type === 'update' && pathOnlyKnowledgeMove(targets.get(mutation.contentId), mutation.after)) proposedPathMoves.add(mutation.contentId);
           check(!(constraints.forbiddenMutations ?? []).includes(mutation.type), `${prefix}Fixture forbids ${mutation.type}.`);
           if (candidate.requestedDisposition === 'observation') check(false, `${prefix}Observation contains a mutation.`);
@@ -136,7 +152,11 @@ export function evaluateTrace(fixture, trace) {
           }
           for (const id of [mutation.contentId, mutation.fromId, mutation.toId].filter(Boolean)) {
             check(targets.has(id), `${prefix}Mutation is outside project content.`);
-            if (targets.get(id)?.kind === 'document') check(mutation.type === 'archive', `${prefix}Documents permit archive proposals only.`);
+            if (sharedOrLinked(targets.get(id))) {
+              check(candidate.requestedDisposition !== 'auto_candidate', `${prefix}Shared or linked proposals require human UI review.`);
+              check(mutation.type !== 'relation', `${prefix}Shared or linked relationships are observations only.`);
+            }
+            if (targets.has(id) && !knowledgeCategory(targets.get(id))) check(mutation.type === 'archive', `${prefix}Documents permit archive proposals only.`);
             if (frozenTargets.size) check(frozenTargets.has(id), `${prefix}Mutation is outside frozen targets.`);
             check(candidate.targets?.some(target => target.contentId === id && target.versionToken === targets.get(id)?.versionToken), `${prefix}Mutation target lacks its version precondition.`);
           }

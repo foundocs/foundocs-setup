@@ -149,3 +149,31 @@ test('stdio bridge checks the server even for a cached host and refreshes capabi
     { project_id: f.projectId }, { project_id: f.projectId, cursor: 'old-project-cursor' },
   ]);
 });
+
+test('stdio bridge negotiates the unified tree per tool and retains explicit arguments', async t => {
+  const tree = { const: 'unified' };
+  const branch = { type: 'object', properties: { tree } };
+  const tool = (name, schema) => ({ name, inputSchema: { type: 'object', ...schema } });
+  const read = scopeTool('get_doc');
+  read.inputSchema.properties.tree = { enum: ['legacy', 'unified'] };
+  const options = { raw: true, skipDiscovery: true, result: { content: [] }, pages: [
+    [read, tool('move_docs', branch), tool('get_dream', branch), tool('set_content_status', branch)],
+    [tool('mutate_discussion', { oneOf: [branch, branch] }), tool('ambiguous_option', { anyOf: [branch, { type: 'object' }] })],
+  ] };
+  const f = await bridge(t, options);
+  for (const name of ['move_docs', 'get_dream', 'mutate_discussion', 'set_content_status']) {
+    await f.call(name);
+    assert.deepEqual(f.calls.at(-1).arguments, { tree: 'unified', project_id: f.projectId });
+  }
+  await f.call('get_doc');
+  assert.deepEqual(f.calls.at(-1).arguments, { project_id: f.projectId, tree: 'unified', scope: 'all' });
+  await f.call('get_doc', { tree: 'legacy', scope: 'project' });
+  assert.deepEqual(f.calls.at(-1).arguments, { project_id: f.projectId, tree: 'legacy', scope: 'project' });
+  await f.call('ambiguous_option');
+  assert.deepEqual(f.calls.at(-1).arguments, { project_id: f.projectId });
+  // Canonical-default (and older) servers may omit the transitional parameter.
+  options.pages = [[scopeTool('get_doc'), scopeTool('move_docs', null)]];
+  await f.client.listTools(undefined, { cacheMode: 'refresh' });
+  await f.call('move_docs');
+  assert.deepEqual(f.calls.at(-1).arguments, { project_id: f.projectId });
+});

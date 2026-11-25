@@ -1,9 +1,9 @@
 {
   "name": "@foundocs/foundocs-setup",
-  "version": "0.3.24",
+  "version": "0.3.25",
   "description": "Repeatable project setup and agent skills for the Foundocs remote MCP server",
   "foundocsRelease": {
-    "summary": "Batch small tasks into one episode at PR submission or completed service rollout; align skills, installed instructions and hook reminders so intermediate edits, tests and turns do not trigger capture."
+    "summary": "Use one docs tree for project and Shared content. The MCP bridge negotiates the unified tree per tool, and installed skills use folder-derived categories, user tags and general document moves."
   },
   "type": "module",
   "bin": {

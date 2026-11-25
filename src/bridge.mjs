@@ -11,6 +11,14 @@ import { episodeCheckpoint } from '../skills/foundocs/scripts/episode-checkpoint
 
 const scopedReadNames = new Set(['get_project_context', 'search_docs', 'explore_docs', 'get_doc', 'get_docs']);
 
+// A discriminated action tool may advertise its fields on each object variant.
+function advertisesUnifiedTree(schema) {
+  const tree = schema.properties?.tree;
+  if (tree?.const === 'unified' || (Array.isArray(tree?.enum) && tree.enum.includes('unified'))) return true;
+  const variants = schema.oneOf ?? schema.anyOf;
+  return Array.isArray(variants) && variants.length > 0 && variants.every(advertisesUnifiedTree);
+}
+
 // Forward only a stable category and safe context, never raw remote messages or data.
 function requestError(error, name) {
   const tool = typeof name === 'string' && /^[a-z][a-z0-9_]{0,63}$/i.test(name) ? name : undefined;
@@ -50,7 +58,7 @@ function requestError(error, name) {
 
 export async function runBridge({ credentialPath, projectId, workspaceId, mcpUrl: endpoint, root, client }) {
 let remote, local, checkpointRoute = 'remote', checkpointWasLocal = false;
-let scopedReads, inventoryRequest;
+let argumentDefaults, inventoryRequest;
 const checkpointTool = {
   name: 'episode_checkpoint',
   description: 'Local installer checkpoint bookkeeping, not remote capture. Use the ID delivered by the trusted UserPromptSubmit/Stop hook. Routine turns: skip only. Important event: prepare persists an exact private payload, call remote capture_episode with returned payload, then ack the successful result. Pending returns at most 3 exact retries. Never use this as semantic evidence or put transcripts/secrets in capture. No model/network invocation; failures never block the primary task.',
@@ -67,15 +75,22 @@ async function close() {
 }
 function refreshToolInventory() {
   if (!inventoryRequest) {
-    scopedReads = undefined;
+    argumentDefaults = undefined;
     inventoryRequest = remote.listTools(undefined, { cacheMode: 'refresh' }).then(({ tools }) => {
       if (tools.length > 2000) throw new Error('tool inventory exceeds bound');
-      scopedReads = new Set();
-      for (const name of scopedReadNames) {
-        const matching = tools.filter(tool => tool.name === name);
-        const allowedScopes = matching[0]?.inputSchema.properties?.scope?.enum;
-        if (matching.length === 1 && Array.isArray(allowedScopes) && allowedScopes.includes('all')) scopedReads.add(name);
+      const defaults = new Map();
+      for (const { name, inputSchema } of tools) {
+        if (defaults.has(name)) {
+          defaults.set(name, {}); // Ambiguous tool names cannot establish a capability.
+          continue;
+        }
+        const options = {};
+        const scopes = inputSchema.properties?.scope?.enum;
+        if (scopedReadNames.has(name) && Array.isArray(scopes) && scopes.includes('all')) options.scope = 'all';
+        if (advertisesUnifiedTree(inputSchema)) options.tree = 'unified';
+        defaults.set(name, options);
       }
+      argumentDefaults = defaults;
       return tools;
     }).finally(() => { inventoryRequest = undefined; });
   }
@@ -126,14 +141,10 @@ try {
     }
     try {
       const { name, arguments: args } = request.params;
-      if (scopedReadNames.has(name) && !Object.hasOwn(args, 'scope')) {
-        // Hosts can call a cached tool without listing this bridge first. On
-        // discovery failure, let the remote handle the original read arguments.
-        if (!scopedReads) await refreshToolInventory().catch(() => {});
-        if (scopedReads?.has(name)) {
-          return await remote.callTool({ ...request.params, arguments: { ...args, scope: 'all' } });
-        }
-      }
+      // A host may reuse a cached tool without listing this bridge first.
+      if (!argumentDefaults) await refreshToolInventory().catch(() => {});
+      const defaults = argumentDefaults?.get(name);
+      if (defaults) return await remote.callTool({ ...request.params, arguments: { ...defaults, ...args } });
       return await remote.callTool(request.params);
     }
     catch (error) { throw requestError(error, request.params.name); }
