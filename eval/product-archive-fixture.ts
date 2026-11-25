@@ -12,7 +12,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
 import { httpFixture } from '../src/mcp/http-fixture'
 
 const setup = process.env.ARCHIVE_SETUP_PACKAGE!
-const { install, updateSkills, doctor, loadInstallation } = await import(pathToFileURL(join(setup, 'src/setup.mjs')).href)
+const { install, updateSkills, updateInstallation, doctor, loadInstallation } = await import(pathToFileURL(join(setup, 'src/setup.mjs')).href)
 const baseline = process.env.ARCHIVE_BASELINE_PACKAGE!
 const baselineVersion = JSON.parse(await readFile(join(baseline, 'package.json'), 'utf8')).version
 const pinnedCli = join(baseline, 'src/cli.mjs')
@@ -25,6 +25,8 @@ try {
   for (const mode of ['new-install', 'existing-runtime-pin']) for (const client of ['codex', 'claude']) {
     const account = await fixture.account(), root = join(directory, `${mode}-${client}`), storageDir = join(directory, `${mode}-${client}-private`)
     await mkdir(root); await writeFile(join(root, 'AGENTS.md'), '# Existing project instructions\n')
+    if (client === 'claude') await writeFile(join(root, 'CLAUDE.md'), '# Existing Claude instructions\n')
+    const unified = mode === 'new-install'
     const attemptId = randomUUID()
     const issued = await account.ownerFetch(`/api/workspaces/${account.workspaceId}/setup-codes`, { attemptId, projectId: account.projectId, client })
     assert.equal(issued.status, 201)
@@ -57,15 +59,43 @@ try {
     try {
       await sdk.connect(transport)
       const tools = (await sdk.listTools()).tools
-      for (const name of ['set_content_status', 'set_knowledge_status', 'get_archive_candidates', 'approve_archive_proposal']) {
+      for (const name of ['set_content_status', unified ? 'move_docs' : 'move_knowledge', 'get_archive_candidates', 'approve_archive_proposal']) {
         const tool = tools.find(tool => tool.name === name)
         assert.ok(tool?.inputSchema && tool.outputSchema, `Missing dynamic schema for ${name}`)
       }
       assert.ok(tools.find(t => t.name === 'set_content_status')!.inputSchema.required?.includes('items'))
       const invoke = async (name: string, args: any) => (await sdk.callTool({ name, arguments: { project_id: account.projectId, ...args } })).structuredContent as any
       const call = async (name: string, args: any) => { const r = await invoke(name, args); assert.equal(r?.ok, true, `${name}: ${r?.error?.code}`); return r.data }
-      const create = (name: string, kind = 'document') => call('create_doc', { kind, category: kind === 'document' ? null : 'learnings', path: kind === 'document' ? `docs/${name}.md` : `knowledge/learnings/${name}.md`, title: name, tldr: 'Retired experiment', tags: [], created: '2026-10-27', bodyMarkdown: 'The preview experiment ended. The stable channel replaces it.', reason: 'Isolated integration fixture', requestId: randomUUID() })
-      const doc = await create('document'), memory = await create('knowledge', 'knowledge')
+      const shape = (name: string, knowledge: boolean) => {
+        const path = knowledge ? `knowledge/learnings/${name}.md` : `docs/${name}.md`
+        if (unified) return { path: knowledge ? `docs/${path}` : path }
+        return { path, kind: knowledge ? 'knowledge' : 'document', category: knowledge ? 'learnings' : null }
+      }
+      const fields = { tldr: 'Retired experiment', tags: ['배움'], created: '2026-10-27', bodyMarkdown: 'The preview experiment ended. The stable channel replaces it.', reason: 'Isolated integration fixture' }
+      const create = (name: string, knowledge = false) => call('create_doc', { ...shape(name, knowledge), ...fields, title: name, requestId: randomUUID() })
+      const doc = await create('document'), memory = await create('knowledge', true)
+      assert.equal(memory.path, shape('knowledge', true).path)
+      assert.equal(memory.kind, unified ? 'document' : 'knowledge')
+      if (unified) {
+        assert.deepEqual(memory.userTags, ['배움'])
+        assert.deepEqual(memory.tags, ['배움'])
+        assert.equal(memory.categoryTag, '배움')
+        const index = await call('get_project_context', { view: 'index' })
+        const shared = await call('create_doc', { ...shape('shared-lesson', true), ...fields, title: 'Shared lesson', scope: 'shared', approval: { kind: 'user_request', text: 'Create this isolated Shared fixture.' }, expectedGlobalVersionToken: index.global.versionToken, requestId: randomUUID() })
+        const sharedRead = await call('get_doc', { path: 'shared/docs/knowledge/learnings/shared-lesson.md' })
+        assert.equal(sharedRead.id, shared.id)
+        assert.equal(sharedRead.categoryTag, '배움')
+        const move = { items: [ref(memory)], directory: 'docs/knowledge/decisions', reason: 'Reclassify fixture', requestId: randomUUID() }
+        const moved = await call('move_docs', move)
+        assert.deepEqual(await call('move_docs', move), moved)
+        assert.equal(moved.items[0].path, 'docs/knowledge/decisions/knowledge.md')
+        const previous = await call('get_doc', { path: 'knowledge/learnings/knowledge.md' })
+        assert.equal(previous.id, memory.id)
+        assert.equal(previous.categoryTag, '결정')
+        assert.deepEqual(previous.tags, ['배움', '결정'])
+        assert.deepEqual(previous.userTags, ['배움'])
+        Object.assign(memory, previous)
+      }
       const args = { items: [ref(doc), ref(memory)], memoryStatus: 'archived', reason: 'Explicit fixture archival request', requestId: randomUUID() }
       const archived = await call('set_content_status', args)
       assert.ok(archived.items.every((i: any) => i.changed && i.memoryStatus === 'archived'))
@@ -83,8 +113,13 @@ try {
       const restored = await call('set_content_status', { items: [ref(edited), ref(archived.items[1])], memoryStatus: 'active', reason: 'Restore latest fixture content', requestId: randomUUID() })
       assert.ok(restored.items.every((i: any) => i.memoryStatus === 'active'))
       assert.equal((await call('get_doc', { id: doc.id })).bodyMarkdown, 'Latest archived revision remains authoritative.')
-      const legacy = await call('set_knowledge_status', { ...ref(restored.items[1]), memoryStatus: 'archived', reason: 'Legacy compatibility', requestId: randomUUID() })
-      assert.equal(legacy.memoryStatus, 'archived')
+      if (!unified) {
+        const moved = await call('move_knowledge', { items: [ref(restored.items[1])], directory: 'knowledge/learnings/history', reason: 'Legacy relocation', requestId: randomUUID() })
+        const previous = await call('get_doc', { path: memory.path })
+        assert.equal(previous.path, 'knowledge/learnings/history/knowledge.md')
+        const legacy = await call('set_knowledge_status', { ...ref(moved.items[0]), memoryStatus: 'archived', reason: 'Legacy compatibility', requestId: randomUUID() })
+        assert.equal(legacy.memoryStatus, 'archived')
+      }
       const mixed = await create('atomic-peer')
       assert.equal((await invoke('set_content_status', { items: [ref(doc), ref(mixed)], memoryStatus: 'archived', reason: 'Stale atomic fixture', requestId: randomUUID() })).error.code, 'VERSION_CONFLICT')
       assert.equal((await call('get_doc', { id: mixed.id })).memoryStatus, 'active')
@@ -96,8 +131,23 @@ try {
         await call('report_retrieval_evaluation', { retrievalId: read.retrievals[0].retrievalId, verdict, reason: verdict === 'beneficial' ? 'Useful historical recovery context' : 'This task requires the active channel, not the retired preview.', requestId: randomUUID() })
       }
       const incidentalBody = 'The delivered one-time screenshot used the third browser tab to the left of the second. This records only the temporary arrangement; no reusable procedure or product decision depended on it.'
-      const incidental = await call('create_doc', { kind: 'knowledge', category: 'learnings', path: 'knowledge/learnings/incidental.md', title: 'Completed screenshot arrangement', tldr: 'Temporary one-time arrangement', tags: [], created: '2026-11-10', bodyMarkdown: incidentalBody, reason: 'Low future reuse fixture', requestId: randomUUID() })
+      const incidental = await call('create_doc', { ...shape('incidental', true), title: 'Completed screenshot arrangement', tldr: 'Temporary one-time arrangement', tags: [], created: '2026-11-10', bodyMarkdown: incidentalBody, reason: 'Low future reuse fixture', requestId: randomUUID() })
+      const moveTarget = unified ? await create('future-runbooks', true) : null
       const run = (await call('dream_memory', { action: 'begin', requestId: randomUUID(), agentName: 'Archive package fixture', promptVersion: 'dreaming-v1' })).run
+      if (moveTarget) {
+        const source = await call('get_doc', { id: moveTarget.id })
+        const targetRef = { contentId: source.id, versionToken: source.versionToken }
+        const { kind, category, title, tldr, created, bodyMarkdown } = source
+        const after = { kind, category, title, tldr, created, bodyMarkdown, tags: source.userTags, path: 'docs/knowledge/learnings/runbooks/future-runbooks.md', reason: 'Group fixture runbooks' }
+        const proposed = await call('dream_memory', { action: 'submit', requestId: randomUUID(), runId: run.id, leaseGeneration: run.leaseGeneration, candidates: [{
+          candidateId: randomUUID(), stages: [3], title: 'Group fixture runbooks', reason: after.reason, impact: 'Path only',
+          targets: [targetRef], evidence: [{ ...targetRef, location: 'body', excerpt: source.bodyMarkdown }],
+          mutations: [{ type: 'update', contentId: source.id, after }], dependsOn: [], alternatives: [], uncertainty: [], requestedDisposition: 'auto_candidate',
+        }] })
+        const change = proposed.changes.find((c: any) => c.targets.some((t: any) => t.contentId === source.id))
+        assert.equal(change.autoApplied, true)
+        assert.equal((await call('get_doc', { path: source.path })).path, after.path)
+      }
       const candidates = await call('get_archive_candidates', { runId: run.id })
       const review = candidates.items.find((i: any) => i.contentId === target.id)
       assert.ok(review)
@@ -109,7 +159,7 @@ try {
       const current = await call('get_doc', { id: target.id })
       const targetRef = { contentId: target.id, versionToken: current.versionToken }
       const proposed = await call('dream_memory', { action: 'submit', requestId: randomUUID(), runId: run.id, leaseGeneration: run.leaseGeneration, candidates: [{ candidateId: randomUUID(), stages: [6], title: 'Retired preview archive review', reason: 'Retired preview repeatedly distracts active-release tasks; useful historical recovery remains visible.', impact: 'Default retrieval excludes it; direct links and reversible archive preserve history.', targets: [targetRef], evidence: [{ ...targetRef, location: 'body', excerpt: current.bodyMarkdown }], retrievalEvidence: evidence.filter((r: any) => r.evaluation).map((r: any) => ({ ...targetRef, retrievalId: r.retrievalId, evaluationId: r.evaluation.id, currentContentReason: 'The current body still describes the ended experiment; beneficial historical use is counterevidence.' })), mutations: [{ type: 'archive', contentId: target.id }], dependsOn: [], alternatives: ['Retain for historical recovery'], uncertainty: [], requestedDisposition: 'review_candidate' }] })
-      const change = proposed.changes[0]
+      const change = proposed.changes.find((c: any) => c.targets.some((t: any) => t.contentId === target.id))
       assert.equal(change.status, 'proposed'); assert.equal(change.autoApplied, false)
       assert.ok(change.archiveReview.targets[0].counts.beneficial >= 1)
       assert.ok(!candidates.items.some((i: any) => i.contentId === incidental.id), 'No negative ratings: absent from the retrieval shortlist')
@@ -133,7 +183,27 @@ try {
       assert.equal(invalid.ok, false)
       assert.ok(!JSON.stringify(invalid).includes(account.key))
       assert.ok(!stderr.includes(account.key) && !stderr.includes(code))
-      console.log(JSON.stringify({ client, mode, tarballRuntime: 'PASS', dynamicSchemas: 'PASS', archiveRestoreUndo: 'PASS', atomicConflictAndLegacy: 'PASS', evaluatedCandidateAndPendingReview: 'PASS', lowFutureReuseWithoutRatings: 'PASS', automaticArchive: false, modelQualityVerified: false }))
+      console.log(JSON.stringify({ client, mode, tarballRuntime: 'PASS', dynamicSchemas: 'PASS', archiveRestoreUndo: 'PASS', tree: unified ? 'unified' : 'legacy', pathAndTagContract: 'PASS', atomicConflict: 'PASS', evaluatedCandidateAndPendingReview: 'PASS', lowFutureReuseWithoutRatings: 'PASS', automaticArchive: false, modelQualityVerified: false }))
     } finally { await sdk.close() }
+    if (!unified) {
+      const result = await updateInstallation(root, options)
+      assert.equal(result.runtime.status, 'runtime_upgraded')
+      assert.equal(result.credentialRetained, true)
+      assert.ok((await readFile(configPath, 'utf8')).includes(`@foundocs/foundocs-setup@${result.runtime.version}`))
+      const agents = await readFile(join(root, 'AGENTS.md'), 'utf8')
+      assert.ok(agents.startsWith('# Existing project instructions\n'))
+      assert.ok(agents.includes('docs/knowledge/'))
+      if (client === 'claude') assert.ok((await readFile(join(root, 'CLAUDE.md'), 'utf8')).startsWith('# Existing Claude instructions\n'))
+      const current = new Client({ name: 'updated-install-check', version: '1' })
+      try {
+        await current.connect(new StdioClientTransport({ command: process.execPath, args: [join(setup, 'src/cli.mjs'), 'mcp', '--project-id', account.projectId], cwd: root, env: { ...process.env, FOUNDOCS_SETUP_HOME: storageDir } as Record<string, string>, stderr: 'pipe' }))
+        const reply = await current.callTool({ name: 'get_doc', arguments: { project_id: account.projectId, path: 'knowledge/learnings/knowledge.md' } })
+        const item = (reply.structuredContent as any).data
+        assert.equal(item.path, 'docs/knowledge/learnings/history/knowledge.md')
+        assert.equal(item.memoryStatus, 'archived')
+        assert.deepEqual(item.userTags, ['배움'])
+        console.log(JSON.stringify({ client, upgradedFrom: baselineVersion, upgradedTo: result.runtime.version, archivedBookmark: 'PASS' }))
+      } finally { await current.close() }
+    }
   }
 } finally { await fixture.close() }

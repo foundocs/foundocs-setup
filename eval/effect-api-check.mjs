@@ -16,8 +16,16 @@ const f=await httpFixture();const base=await realpath(await mkdtemp(join(tmpdir(
 const packageRoot=fileURLToPath(new URL('..',import.meta.url));
 const cli=process.env.FOUNDOCS_EFFECT_CLI??join(packageRoot,'src/cli.mjs');
 try {
- const a=await f.account(),client=await a.connect();await client.listTools();
- const call=async(name,args={})=>{const r=(await client.callTool({name,arguments:{project_id:a.projectId,...args}})).structuredContent;assert.equal(r.ok,true,JSON.stringify(r.error));return r.data;};
+ const a=await f.account(),client=await a.connect();
+ const schemas=new Map((await client.listTools()).tools.map(tool=>[tool.name,tool.inputSchema]));
+ const call=async(name,args={})=>{
+  const schema=schemas.get(name);
+  const option=schema?.properties?.tree;
+  const tree=option?.const==='unified'||option?.enum?.includes('unified')?{tree:'unified'}:{};
+  const legacyDocument=name==='create_doc'&&schema?.required?.includes('kind')?{kind:'document',category:null}:{};
+  const r=(await client.callTool({name,arguments:{project_id:a.projectId,...tree,...legacyDocument,...args}})).structuredContent;
+  assert.equal(r.ok,true,JSON.stringify(r.error));return r.data;
+ };
  const root=join(base,'project'),storage=join(base,'private');await mkdir(root,{mode:0o700});
  await writeFile(join(root,'foundocs.json'),JSON.stringify({project_id:a.projectId}));await writeFile(join(root,'source.txt'),'The retry setting is alpha.\n');
  const digest=v=>createHash('sha256').update(v).digest('hex');
@@ -30,8 +38,8 @@ try {
  const disabled=await call('get_effect_measurement_policy');assert.equal(disabled.enabled,false);
  const offShim=join(base,'off-bin');await mkdir(offShim);await writeFile(join(offShim,'claude'),'#!/bin/sh\nexit 91\n',{mode:0o700});
  assert.equal((await command('prepare',{policy:disabled},{PATH:offShim})).reason,'disabled');
- const doc=await call('create_doc',{kind:'document',category:null,path:'docs/setting.md',title:'Retry setting',tldr:'The retry setting is alpha.',bodyMarkdown:'The retry setting is alpha. The secret setting is beta.',created:'2026-11-03',tags:[],reason:'Synthetic fixture',requestId:randomUUID()});
- const irrelevant=await call('create_doc',{kind:'document',category:null,path:'docs/unrelated.md',title:'Unrelated',tldr:'A different topic.',bodyMarkdown:'A different topic.',created:'2026-11-03',tags:[],reason:'Synthetic fixture',requestId:randomUUID()});
+ const doc=await call('create_doc',{path:'docs/setting.md',title:'Retry setting',tldr:'The retry setting is alpha.',bodyMarkdown:'The retry setting is alpha. The secret setting is beta.',created:'2026-11-03',tags:[],reason:'Synthetic fixture',requestId:randomUUID()});
+ const irrelevant=await call('create_doc',{path:'docs/unrelated.md',title:'Unrelated',tldr:'A different topic.',bodyMarkdown:'A different topic.',created:'2026-11-03',tags:[],reason:'Synthetic fixture',requestId:randomUUID()});
  const current=await call('get_effect_measurement_policy');const {revision,...settings}=current;
  const response=await fetch(`${f.origin}/api/projects/${a.projectId}/effect-measurement/policy`,{method:'PUT',headers:{Cookie:a.cookie,Origin:f.origin,'Content-Type':'application/json','If-Match':`"${revision}"`},body:JSON.stringify({...settings,enabled:true,model:null,sampleRate:1,perProbeTimeoutMs:60000,perProbeMaxTurns:6,perProbeEstimatedUsdLimit:.10})});assert.equal(response.status,200);
  const results=[];
