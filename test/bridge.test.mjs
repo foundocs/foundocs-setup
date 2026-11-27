@@ -18,7 +18,7 @@ async function bridge(t, options = {}) {
   const root = join(base, 'project'), storageDir = join(base, 'private');
   await mkdir(root);
   const projectId = randomUUID(), workspaceId = randomUUID();
-  const tool = { name: 'get_doc', inputSchema: { type: 'object', properties: { project_id: { type: 'string' } }, required: ['project_id'] }, outputSchema: options.schema ?? outputSchema };
+  const tool = { name: options.readTool ?? 'get_doc', inputSchema: { type: 'object', properties: { project_id: { type: 'string' } }, required: ['project_id'] }, outputSchema: options.schema ?? outputSchema };
   const calls = [];
   const extraTools = options.automatic ? ['get_effect_measurement_policy', 'prepare_effect_measurement', 'report_effect_diagnostic', 'report_retrieval_evaluation'].map(name => ({ name, inputSchema: { type: 'object' } })) : [];
   const server = createServer(async (request, response) => {
@@ -39,7 +39,7 @@ async function bridge(t, options = {}) {
       if (options.status) { response.writeHead(options.status, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: `${key} ${privateValue}` })); return; }
       result = options.result ?? { content: [{ type: 'text', text: privateValue }], structuredContent: { ok: true, data: { count: 1, unexpected: `${key} ${privateValue}` } } };
     }
-    if (rpc.method === 'tools/call' && options.automatic && rpc.params.name !== 'get_doc') {
+    if (rpc.method === 'tools/call' && options.automatic && rpc.params.name !== tool.name) {
       const data = rpc.params.name === 'get_effect_measurement_policy' ? { enabled: true } : { recorded: true };
       result = { structuredContent: { ok: true, data }, content: [{ type: 'text', text: JSON.stringify({ ok: true, data }) }] };
     }
@@ -111,16 +111,16 @@ test('stdio bridge preserves structured server output validation errors', async 
   assert.deepEqual(reply.structuredContent, structuredContent);
 });
 
-test('installed bridge advertises automatic metadata, keeps it local, and reports missing installation consent without inference', async t => {
-  const f = await bridge(t, { automatic: true, result: { content: [], structuredContent: { ok: true, data: { count: 1 } } } });
+for (const readTool of ['get_doc', 'lookup_evidence']) test(`installed bridge tracks ${readTool} and reports missing consent without inference`, async t => {
+  const f = await bridge(t, { automatic: true, readTool, result: { content: [], structuredContent: { ok: true, data: { count: 1 } } } });
   const tools = await f.client.listTools();
-  assert(tools.tools.find(t => t.name === 'get_doc').inputSchema.properties.effectTask);
+  assert(tools.tools.find(t => t.name === readTool).inputSchema.properties.effectTask);
   const taskId = randomUUID();
-  const result = await f.client.callTool({ name: 'get_doc', arguments: { project_id: f.projectId,
+  const result = await f.client.callTool({ name: readTool, arguments: { project_id: f.projectId,
     effectTask: { taskId, question: 'Locate retry config', knownContext: '', criteria: [{ id: 'retry', description: 'Locate it' }] } } });
   assert.equal(result.structuredContent.ok, true);
   assert.equal(f.calls.find(c => c.name === 'report_effect_diagnostic').arguments.reason, 'consent_required');
-  const read = f.calls.find(c => c.name === 'get_doc');
+  const read = f.calls.find(c => c.name === readTool);
   assert.equal(read.arguments.taskId, taskId); assert(!('effectTask' in read.arguments));
   assert(!f.calls.some(c => c.name === 'prepare_effect_measurement'));
 });

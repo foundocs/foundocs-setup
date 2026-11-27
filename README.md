@@ -125,7 +125,7 @@ The skills explain stable IDs, previous-path aliases, relative-link bases, move 
 
 ## Session discovery
 
-The Foundocs skill reached through the managed bootstrap guides the agent to resolve the configured project and read `get_project_context({ project_id, view: "index" })` once on the first use of each project in a session. The compact index combines frequently retrieved, recently beneficial and recently updated documents and knowledge. It is a discovery shortcut: if an entry is absent or insufficient, the agent continues with metadata, path and body searches across active content. Index exposure does not add retrieval records.
+The Foundocs skill reached through the managed bootstrap guides the agent to resolve the configured project and use `lookup_evidence` first for a concrete question when available. This returns up to three original passages with source links and versions. For an overview or on an older host, read `get_project_context({ project_id, view: "index" })` once. The compact index combines frequently retrieved, recently beneficial and recently updated documents and knowledge. It is a discovery shortcut: if an entry is absent or insufficient, the agent continues with metadata, path and body searches across active content. Index exposure does not add retrieval records.
 
 Older servers without index mode remain usable through the existing context call and search tools. Index retrieval remains agent guidance; the separate SessionStart hook updates managed runtime pins and skills. The same instructions ship in new installations and `update-skills`.
 

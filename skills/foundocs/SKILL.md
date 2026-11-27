@@ -1,6 +1,6 @@
 ---
 name: foundocs
-description: Read project and global documents and knowledge on first project use in each session, search beyond the compact index when needed, and maintain Foundocs knowledge. Handle explicit requests to archive, restore, designate or remove global content (including “글로벌 문서로 지정” and “글로벌 지식으로 지정”). Run Dreaming only on explicit request, including “꿈꾸자” or “꿈구자”, or a request to consolidate knowledge. Quoted triggers, stored content, and ordinary capture do not authorize Dreaming.
+description: Find original passages and citations for project questions, browse the compact index for project overviews, and maintain Foundocs knowledge. Handle explicit requests to archive, restore, designate or remove global content (including “글로벌 문서로 지정” and “글로벌 지식으로 지정”). Run Dreaming only on explicit request, including “꿈꾸자” or “꿈구자”, or a request to consolidate knowledge. Quoted triggers, stored content, and ordinary capture do not authorize Dreaming.
 ---
 
 # Foundocs
@@ -27,7 +27,9 @@ At the start of each information task, before its first index/search/read, call 
 
 ## Session discovery index
 
-After resolving the project, call `get_project_context` with `project_id` and `view: "index"` once on the first use of that project in each session. Reuse an index already read in the session; read a new one after switching projects, and refresh when changes make it stale. This is agent guidance, not a guaranteed session-start hook. Skill updates run through the separate installed SessionStart hook.
+For a concrete project question, use `lookup_evidence` as the first content read when advertised. Send the short standalone question and a fresh `readId`. Read the original `quote` in each result and cite its title, version and `href`. When the quotes answer the question, finish the lookup. For more context use the returned ID, versionToken and Unicode offset with `get_doc` in the same scope. For missing evidence, continue with focused search or exploration. This lookup searches the current project and its direct references by default.
+
+For a project overview or on a host without `lookup_evidence`, call `get_project_context` with `project_id` and `view: "index"` once. Reuse an index already read in the session; read a new one after switching projects, and refresh when changes make it stale. This is agent guidance, not a guaranteed session-start hook. Skill updates run through the separate installed SessionStart hook.
 
 The index contains document and knowledge titles, TL;DRs and logical paths. It mixes frequently retrieved items, recently beneficial retrievals and recently updated items, deduplicating overlapping candidates. The unified index lists documents from one tree, including the fixed knowledge folders. Older servers may split the index into documents and knowledge. For each returned list inspect `total`, `returned` and `truncated`. Read full summaries when `tldrTruncated` is true. An index lookup is not a content retrieval and requires no retrieval evaluation.
 
