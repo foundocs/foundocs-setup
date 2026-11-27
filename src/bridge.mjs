@@ -7,6 +7,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 import { readCredential } from './auth.mjs';
 import { pathToFileURL } from 'node:url';
 import { resolve, dirname } from 'node:path';
+import { AutomaticMeasurement, automaticTool, automaticStore } from './effect-automatic.mjs';
 import { episodeCheckpoint } from '../skills/foundocs/scripts/episode-checkpoint.mjs';
 
 const scopedReadNames = new Set(['get_project_context', 'search_docs', 'explore_docs', 'get_doc', 'get_docs']);
@@ -56,7 +57,8 @@ function requestError(error, name) {
     { code, retryable, ...(tool ? { tool } : {}), ...(httpStatus !== undefined ? { httpStatus } : {}), ...(remoteCode !== undefined ? { remoteCode } : {}) });
 }
 
-export async function runBridge({ credentialPath, projectId, workspaceId, mcpUrl: endpoint, root, client }) {
+export async function runBridge({ credentialPath, projectId, workspaceId, mcpUrl: endpoint, root, client, automaticFactory, automaticBase }) {
+let automatic, automaticSupported = false, recovered = false;
 let remote, local, checkpointRoute = 'remote', checkpointWasLocal = false;
 let argumentDefaults, inventoryRequest;
 const checkpointTool = {
@@ -70,13 +72,15 @@ const checkpointTool = {
   annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false, idempotentHint: false },
 };
 async function close() {
+  await automatic?.drain();
   await remote?.close().catch(() => {});
   await local?.close().catch(() => {});
 }
 function refreshToolInventory() {
   if (!inventoryRequest) {
     argumentDefaults = undefined;
-    inventoryRequest = remote.listTools(undefined, { cacheMode: 'refresh' }).then(({ tools }) => {
+    automaticSupported = false;
+    inventoryRequest = remote.listTools(undefined, { cacheMode: 'refresh' }).then(async ({ tools }) => {
       if (tools.length > 2000) throw new Error('tool inventory exceeds bound');
       const defaults = new Map();
       for (const { name, inputSchema } of tools) {
@@ -89,6 +93,11 @@ function refreshToolInventory() {
         if (scopedReadNames.has(name) && Array.isArray(scopes) && scopes.includes('all')) options.scope = 'all';
         if (advertisesUnifiedTree(inputSchema)) options.tree = 'unified';
         defaults.set(name, options);
+      }
+      automaticSupported = !!automatic && ['get_effect_measurement_policy', 'prepare_effect_measurement', 'report_effect_diagnostic', 'report_retrieval_evaluation'].every(name => defaults.has(name));
+      if (automaticSupported && !recovered) {
+        try { await automatic.recover(); } catch { process.stderr.write('Foundocs measurement recovery unavailable; ordinary MCP continues.\n'); }
+        recovered = true;
       }
       argumentDefaults = defaults;
       return tools;
@@ -109,6 +118,16 @@ try {
     },
   });
   await remote.connect(transport, { timeout: 20000 });
+  if (automaticFactory && automaticBase) automatic = new AutomaticMeasurement({ projectId,
+    factory: automaticFactory, store: automaticStore(automaticBase), warn: message => process.stderr.write(message + '\n'),
+    remote: async (name, args, raw = false) => {
+      const result = await remote.callTool({ name, arguments: { ...args, project_id: args.project_id ?? projectId } });
+      if (raw) return result;
+      const body = result.structuredContent ?? JSON.parse(result.content.find(c => c.type === 'text').text);
+      if (!body.ok || result.isError) { const error = new Error('Measurement request failed'); error.code = body.error?.code; throw error; }
+      return body.data;
+    },
+  });
   local = new Server({ name: 'foundocs', version: '0.2.0' }, { capabilities: { tools: {} }, instructions: remote.getInstructions() });
   local.setRequestHandler('tools/list', async () => {
     try {
@@ -117,10 +136,9 @@ try {
       const collision = tools.some(tool => tool.name === checkpointTool.name);
       const supported = !!root && ['codex', 'claude'].includes(client) && tools.some(tool => tool.name === 'capture_episode') && !collision;
       checkpointRoute = supported ? 'local' : checkpointWasLocal ? 'blocked' : 'remote';
-      if (supported) { checkpointWasLocal = true; return { tools: [...tools, checkpointTool] }; }
-      // Once advertised locally, this name can never start forwarding private
-      // checkpoint payloads to a changing remote inventory.
-      return { tools: checkpointRoute === 'blocked' ? tools.filter(tool => tool.name !== checkpointTool.name) : tools };
+      if (supported) checkpointWasLocal = true;
+      const visible = supported ? [...tools, checkpointTool] : checkpointRoute === 'blocked' ? tools.filter(tool => tool.name !== checkpointTool.name) : tools;
+      return { tools: automaticSupported ? visible.map(automaticTool) : visible };
     }
     catch (error) { throw requestError(error, 'tools_list'); }
   });
@@ -144,8 +162,12 @@ try {
       // A host may reuse a cached tool without listing this bridge first.
       if (!argumentDefaults) await refreshToolInventory().catch(() => {});
       const defaults = argumentDefaults?.get(name);
-      if (defaults) return await remote.callTool({ ...request.params, arguments: { ...defaults, ...args } });
-      return await remote.callTool(request.params);
+      const params = defaults ? { ...request.params, arguments: { ...defaults, ...args } } : request.params;
+      if (automaticSupported) return await automatic.call(params);
+      if (args && ['effectTask', 'effectTaskId', 'effectTaskComplete'].some(key => Object.hasOwn(args, key))) {
+        throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'Automatic measurement metadata requires the current installer and server.');
+      }
+      return await remote.callTool(params);
     }
     catch (error) { throw requestError(error, request.params.name); }
   });
