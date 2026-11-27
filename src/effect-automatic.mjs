@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { readJson, saveJson, privateDir } from './effect-storage.mjs';
 import { UUID, hash, validateBrief } from './effect-core.mjs';
 
-export const effectReads = new Set(['get_project_context', 'search_docs', 'explore_docs', 'get_doc', 'get_docs']);
+export const effectReads = new Set(['get_project_context', 'lookup_evidence', 'search_docs', 'explore_docs', 'get_doc', 'get_docs']);
 const reasons = new Set(['consent_required', 'missing_preparation', 'late_preparation', 'working_model_unavailable', 'unsupported_runner', 'runner_not_configured', 'isolation_unavailable', 'connection_unavailable', 'permission_denied', 'snapshot_unavailable', 'context_unavailable', 'budget_admission_denied', 'concurrency_limit', 'daily_run_limit', 'not_sampled', 'disabled', 'no_beneficial_retrieval', 'expired_preparation', 'duplicate_task', 'report_pending', 'local_failure', 'incomplete_evaluation']);
 const safeReason = e => reasons.has(e?.reason ?? e?.code?.toLowerCase()) ? (e.reason ?? e.code.toLowerCase()) : ['EACCES', 'EPERM'].includes(e?.code) ? 'permission_denied' : 'local_failure';
 const dataOf = r => r?.structuredContent ?? (() => { try { return JSON.parse(r?.content?.find(c => c.type === 'text')?.text); } catch { return null; } })();
