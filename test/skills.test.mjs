@@ -81,7 +81,9 @@ test('AC-26: both clients install the same English skill and references with res
     assert.equal(result.skills.hostVerification, 'required');
     const files = await Promise.all(skillNames.map(name => readFile(join(f.assetRoot, name), 'utf8')));
     assert.match(files[0], /name: foundocs-capture-knowledge/);
-    for (const text of files) assert.doesNotMatch(text, /[\uac00-\ud7a3]/);
+    for (const text of files) assert.doesNotMatch(text.replaceAll(/결정|배움|규칙/g, ''), /[\uac00-\ud7a3]/);
+    assert.match(files[1], /docs\/knowledge\/<category>/);
+    assert.match(files[1], /userTags/);
     contents.push(files);
     const agents = await readFile(join(f.root, 'AGENTS.md'), 'utf8');
     assert.ok(agents.startsWith(originalAgents));
@@ -90,6 +92,7 @@ test('AC-26: both clients install the same English skill and references with res
     assert.ok(block.length < 1200, 'always-loaded bootstrap must stay compact');
     assert.doesNotMatch(block, /view: "index"|shouldPrompt|dream_memory/);
     assert.match(block, /same turn/);
+    assert.match(block, /docs\/knowledge\//);
     assert.match(block, /explicit user request/);
     const prefix = client === 'codex' ? '.agents' : '.claude';
     assert.ok(block.includes(`](${prefix}/skills/foundocs/SKILL.md)`));
@@ -134,6 +137,7 @@ for (const client of ['codex', 'claude']) for (const historical of [false, true]
     assert.ok(block.length < 1200, 'always-loaded bootstrap must stay compact');
     assert.doesNotMatch(block, /view: "index"|shouldPrompt|dream_memory/);
     assert.match(block, /same turn/);
+    assert.match(block, /docs\/knowledge\//);
     assert.match(block, /explicit user request/);
     const prefix = client === 'codex' ? '.agents' : '.claude';
     assert.ok(block.includes(`](${prefix}/skills/foundocs/SKILL.md)`));

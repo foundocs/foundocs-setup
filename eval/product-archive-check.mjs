@@ -25,7 +25,7 @@ try {
   await run('npm', ['install', '--prefix', base, '--ignore-scripts', '--no-save', '--package-lock=false', '--no-audit', '--no-fund', resolve(tarball)]);
   const installed = join(base, 'node_modules/@foundocs/foundocs-setup');
   const baselinePrefix = join(base, 'baseline');
-  await run('npm', ['install', '--prefix', baselinePrefix, '--ignore-scripts', '--no-save', '--package-lock=false', '--no-audit', '--no-fund', process.env.SETUP_BASELINE_PACKAGE ?? '@foundocs/foundocs-setup@0.3.12']);
+  await run('npm', ['install', '--prefix', baselinePrefix, '--ignore-scripts', '--no-save', '--package-lock=false', '--no-audit', '--no-fund', process.env.SETUP_BASELINE_PACKAGE ?? '@foundocs/foundocs-setup@0.3.24']);
   const baseline = join(baselinePrefix, 'node_modules/@foundocs/foundocs-setup');
   const metadata = JSON.parse(await readFile(join(installed, 'package.json'), 'utf8'));
   assert.equal(metadata.name, '@foundocs/foundocs-setup');

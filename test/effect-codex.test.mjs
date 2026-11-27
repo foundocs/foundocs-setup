@@ -115,7 +115,11 @@ test('Codex supervisor terminates its CLI and removes private runtime after coor
   const child = spawn(process.execPath, [script], { env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, OPENAI_API_KEY: 'synthetic-not-a-key' }, stdio: 'ignore' });
   t.after(() => { try { child.kill('SIGKILL'); } catch {} });
   let pid;
-  for (let i = 0; i < 100; i++) { try { pid = Number(await readFile(marker, 'utf8')); break; } catch { await new Promise(r => setTimeout(r, 20)); } }
+  for (let i = 0; i < 250; i++) {
+    const value = await readFile(marker, 'utf8').catch(error => { if (error.code !== 'ENOENT') throw error; return ''; });
+    if (/^[1-9][0-9]*$/.test(value)) { pid = Number(value); break; }
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
   assert.ok(pid);
   child.kill('SIGKILL'); await new Promise(resolve => child.once('close', resolve));
   let gone = false;

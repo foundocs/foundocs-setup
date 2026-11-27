@@ -1,6 +1,6 @@
 {
   "name": "@foundocs/foundocs-setup",
-  "version": "0.3.25",
+  "version": "0.3.26",
   "description": "Repeatable project setup and agent skills for the Foundocs remote MCP server",
   "foundocsRelease": {
     "summary": "Automate effect preparation, read tracking and comparison through the installed MCP runtime after explicit per-installation consent; report readiness and skip/failure reasons without repeating interrupted inference."

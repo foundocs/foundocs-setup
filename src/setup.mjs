@@ -82,6 +82,10 @@ export function instructions(client) {
   return `## Foundocs\n\n${knowledgePolicy(client)}`;
 }
 
+function claudeInstructions(configName) {
+  return `Read and follow @AGENTS.md in this directory before using Foundocs. Use its document tree and knowledge capture guidance. The governing configuration is the ${configName} beside that AGENTS.md.`;
+}
+
 export function markedBlock(existing, content, oldFormat = false) {
   const targetStart = oldFormat ? legacy.start : START, targetEnd = oldFormat ? legacy.end : END;
   const block = `${targetStart}\n${content}\n${targetEnd}`;
@@ -468,7 +472,7 @@ export async function plan(root, input, credentialPath, helperPath, { oldFormat 
   }
   const instructionText = oldFormat ? legacyInstructions(instructions(includeSkills ? input.client : undefined)) : instructions(includeSkills ? input.client : undefined);
   await add('AGENTS.md', text => markedBlock(text ?? '', instructionText, oldFormat));
-  if (input.client === 'claude') await add('CLAUDE.md', text => markedBlock(text ?? '', `Read and follow @AGENTS.md in this directory before using Foundocs. The governing configuration is the ${configName} beside that AGENTS.md.`, oldFormat));
+  if (input.client === 'claude') await add('CLAUDE.md', text => markedBlock(text ?? '', claudeInstructions(configName), oldFormat));
   // Delete the historical config last: until all clients/instructions are switched,
   // interrupted migrations retain the file the old instructions still reference.
   if (historical !== null) await add(legacy.config, () => null);
@@ -651,7 +655,7 @@ async function skillInstructionEntries(root, manifest, oldFormat) {
   const configName = oldFormat ? legacy.config : 'foundocs.json';
   const policy = instructions(manifest.client);
   const targets = [['AGENTS.md', oldFormat ? legacyInstructions(policy) : policy]];
-  if (manifest.client === 'claude') targets.push(['CLAUDE.md', `Read and follow @AGENTS.md in this directory before using Foundocs. The governing configuration is the ${configName} beside that AGENTS.md.`]);
+  if (manifest.client === 'claude') targets.push(['CLAUDE.md', claudeInstructions(configName)]);
   const entries = [];
   for (const [name, content] of targets) {
     const path = join(root, name); await safeParent(root, path);

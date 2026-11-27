@@ -45,9 +45,9 @@ When a lookup provides useful information for the task, follow [the Foundocs dis
 
 On the first use of this project in a session, follow the [Foundocs session discovery index](../foundocs/SKILL.md#session-discovery-index) guidance: resolve the project, inspect the live schema, then call `get_project_context` with `project_id` and `view: "index"` once if supported. Reuse an index already read in this session. It mixes frequently retrieved, recently beneficial and recently updated items and is only a starting point. If the server lacks index mode, use the existing context call and continue searching. An entry missing from the index is not evidence that knowledge is absent; search beyond the index before deciding to create a new topic. Index exposure itself is not a retrieval to evaluate.
 
-Prefer `explore_docs` for path discovery, body search and focused reads. Use `search_docs` when searching titles, tags or TL;DR, or when its kind/category filters better fit the question. Search only related topics. Before an update, use `get_doc` to obtain the target's current content, metadata and version. Search excerpts are not a complete document. Merge into an existing topic; if the information is already represented without a meaningful change, skip the write.
+Prefer `explore_docs` for path discovery, body search and focused reads. Use `search_docs` for titles, tags or TL;DR. A tag search includes automatic category tags on unified servers. Search only related topics. Before an update, use `get_doc` to obtain the target's current content, metadata and version. Search excerpts are not a complete document. Merge into an existing topic; if the information is already represented without a meaningful change, skip the write.
 
-Knowledge has three fixed category roots: `knowledge/rules/`, `knowledge/learnings/` and `knowledge/decisions/`. Topical folders may nest arbitrarily below the matching root; a file directly under that root is also valid. Before choosing a new path, inspect related existing folders with `explore_docs` and reuse the closest suitable topic. Group closely related facts in the same item or folder; avoid tiny fragments, duplicate shallow folders and a new folder for every capture. Create a topic folder only when it improves retrieval. Ordinary capture need not reorganize unrelated knowledge; use [the writing guide](references/writing-guide.md) for an authorized path move, and the explicit Dreaming workflow for broader consolidation.
+Knowledge has three fixed category roots: `docs/knowledge/rules/`, `docs/knowledge/learnings/` and `docs/knowledge/decisions/`. Topical folders may nest arbitrarily below the matching root; a file directly under that root is also valid. Before choosing a new path, inspect related existing folders with `explore_docs` and reuse the closest suitable topic. Group closely related facts in the same item or folder; avoid tiny fragments, duplicate shallow folders and a new folder for every capture. Create a topic folder only when it improves retrieval. Ordinary capture need not reorganize unrelated knowledge; use [the writing guide](references/writing-guide.md) for an authorized path move, and the explicit Dreaming workflow for broader consolidation.
 
 When new information conflicts with existing knowledge, check whether the user explicitly corrected or superseded the earlier statement. If so, update it and record the correction's source without inventing a reason. Otherwise, ask a focused clarification before replacing the disputed claim; recency alone is not proof of correction. Do not silently override user-provided context with code evidence or the reverse; distinguish their sources and scopes. Continue saving unrelated, unambiguous knowledge and preserve unrelated content.
 
@@ -69,7 +69,7 @@ head [-n N] [--] PATH
 tail [-n N] [--] PATH
 ```
 
-- Paths are absolute within the selected project: `/docs/` and `/knowledge/{rules,decisions,learnings}/`. Commands with optional paths default to `/`; prefer the smallest relevant subtree. `ls` lists immediate children; `find` and `rg --files` discover paths recursively.
+- Use absolute virtual paths. Project contents appear under `/docs/` including `/docs/knowledge/{rules,decisions,learnings}/`. On supported servers, global contents appear under `/shared/docs/` including `/shared/docs/knowledge/`. Commands with optional paths default to `/`. Prefer the smallest relevant subtree. `ls` lists immediate children, and `find` and `rg --files` discover paths recursively.
 - For search, `-n` includes line numbers, `-l` returns matching filenames, `-i` ignores case, and `-C N` adds up to 100 context lines on either side. Use a separate count (`-C 3`, not `-C3`). `grep -r` is accepted; `rg` is already recursive.
 - Patterns match literal text or quoted alternatives such as `'session|token'`. Use `-F` for literal regex punctuation or a literal `|`. General regex is unsupported; `grep -E` only selects the same alternatives mode.
 - Globs support `*`, `**` and `?`. Slashless globs match basenames. Quote globs; `rg -g '!GLOB'` excludes matches, while `grep --include=GLOB` only accepts positive globs.
@@ -81,15 +81,15 @@ tail [-n N] [--] PATH
 Each line below is a separate `command` value, not a shell script. Choose the steps needed for the question; replace illustrative filenames with paths actually discovered.
 
 ```text
-ls /knowledge
-find /knowledge -type f -name '*auth*.md'
-rg --files -g '*.md' /knowledge/decisions
-rg -ni -C 2 'session|token' /knowledge
+ls /docs/knowledge
+find /docs/knowledge -type f -name '*auth*.md'
+rg --files -g '*.md' /docs/knowledge/decisions
+rg -ni -C 2 'session|token' /docs/knowledge
 rg -n -F 'AUTH_SECRET' /docs
-sed -n '1,60p' /knowledge/decisions/auth.md
+sed -n '1,60p' /docs/knowledge/decisions/auth.md
 head -n 20 /docs/auth.md
 tail -n 20 /docs/auth.md
-cat /knowledge/rules/auth.md
+cat /docs/knowledge/rules/auth.md
 grep -rnF --include='*.md' 'session expired' /docs
 ```
 

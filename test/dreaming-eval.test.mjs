@@ -109,6 +109,38 @@ test('folder trace permits only advertised same-category path-only automatic mov
   assert.deepEqual(evaluateTrace(reviewed.fixture, reviewed.trace).violations, []);
 });
 
+test('unified folder moves compare the canonical category and the authored tags', () => {
+  const { fixture, trace } = folderMove();
+  const source = fixture.knowledge[0];
+  Object.assign(source, { kind: 'document', category: null, path: 'docs/knowledge/learnings/session.md', userTags: ['auth'], tags: ['배움', 'auth'] });
+  const after = trace.steps[2].arguments.candidates[0].mutations[0].after;
+  Object.assign(after, { kind: 'document', category: null, path: 'docs/knowledge/learnings/auth/session.md', tags: ['auth'] });
+  assert.deepEqual(evaluateTrace(fixture, trace).violations, []);
+  for (const patch of [{ tags: ['배움', 'auth'] }, { path: 'docs/knowledge/rules/session.md' }, { path: 'docs/topic/session.md' }]) {
+    const previous = structuredClone(after);
+    Object.assign(after, patch);
+    assert.ok(evaluateTrace(fixture, trace).violations.some(v => v.includes('Meaningful mutation')));
+    Object.assign(after, previous);
+  }
+});
+
+test('Shared and linked knowledge accept reviewed folder proposals and exclude automatic changes', () => {
+  for (const scope of [{ scope: 'shared' }, { scope: 'project', sharedLink: { sharedId: 'counterpart' } }]) {
+    const { fixture, trace } = folderMove({ disposition: 'review_candidate' });
+    const source = fixture.knowledge[0];
+    const prefix = scope.scope === 'shared' ? 'shared/' : '';
+    Object.assign(source, scope, { kind: 'document', category: null, path: prefix + 'docs/knowledge/learnings/source.md' });
+    const candidate = trace.steps[2].arguments.candidates[0];
+    Object.assign(candidate.mutations[0].after, { kind: 'document', category: null, path: 'docs/knowledge/learnings/topic/source.md' });
+    assert.deepEqual(evaluateTrace(fixture, trace).violations, []);
+    candidate.requestedDisposition = 'auto_candidate';
+    assert.ok(evaluateTrace(fixture, trace).violations.some(v => v.includes('human UI review')));
+    candidate.requestedDisposition = 'review_candidate';
+    source.path = prefix + 'docs/general/source.md';
+    assert.ok(evaluateTrace(fixture, trace).violations.some(v => v.includes('Documents permit archive')));
+  }
+});
+
 test('folder trace rejects semantic, cross-category, forged-field, unchanged and escaping automatic updates', () => {
   for (const patch of [
     { bodyMarkdown: 'Edited meaning' }, { title: 'Different' }, { tldr: 'Different' }, { tags: ['session', 'auth'] }, { created: '2026-10-21' },
@@ -184,7 +216,7 @@ test('document permission does not expand to update, importance, relation or aut
 });
 
 test('both status tools and direct batch moves remain forbidden Dreaming bypasses', () => {
-  for (const tool of ['set_content_status', 'set_knowledge_status', 'move_knowledge']) {
+  for (const tool of ['set_content_status', 'set_knowledge_status', 'move_docs', 'move_knowledge', 'mutate_shared_content']) {
     const { fixture, trace } = archiveTrace();
     fixture.availableTools.push(tool);
     trace.steps.splice(2, 0, { tool, arguments: { project_id: fixture.projectId } });

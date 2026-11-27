@@ -10,6 +10,16 @@ import { resolve, dirname } from 'node:path';
 import { AutomaticMeasurement, automaticTool, automaticStore } from './effect-automatic.mjs';
 import { episodeCheckpoint } from '../skills/foundocs/scripts/episode-checkpoint.mjs';
 
+const scopedReadNames = new Set(['get_project_context', 'search_docs', 'explore_docs', 'get_doc', 'get_docs']);
+
+// A discriminated action tool may advertise its fields on each object variant.
+function advertisesUnifiedTree(schema) {
+  const tree = schema.properties?.tree;
+  if (tree?.const === 'unified' || (Array.isArray(tree?.enum) && tree.enum.includes('unified'))) return true;
+  const variants = schema.oneOf ?? schema.anyOf;
+  return Array.isArray(variants) && variants.length > 0 && variants.every(advertisesUnifiedTree);
+}
+
 // Forward only a stable category and safe context, never raw remote messages or data.
 function requestError(error, name) {
   const tool = typeof name === 'string' && /^[a-z][a-z0-9_]{0,63}$/i.test(name) ? name : undefined;
@@ -50,6 +60,7 @@ function requestError(error, name) {
 export async function runBridge({ credentialPath, projectId, workspaceId, mcpUrl: endpoint, root, client, automaticFactory, automaticBase }) {
 let automatic, automaticSupported = false, recovered = false;
 let remote, local, checkpointRoute = 'remote', checkpointWasLocal = false;
+let argumentDefaults, inventoryRequest;
 const checkpointTool = {
   name: 'episode_checkpoint',
   description: 'Local installer checkpoint bookkeeping, not remote capture. Use the ID delivered by the trusted UserPromptSubmit/Stop hook. Routine turns: skip only. Important event: prepare persists an exact private payload, call remote capture_episode with returned payload, then ack the successful result. Pending returns at most 3 exact retries. Never use this as semantic evidence or put transcripts/secrets in capture. No model/network invocation; failures never block the primary task.',
@@ -65,11 +76,40 @@ async function close() {
   await remote?.close().catch(() => {});
   await local?.close().catch(() => {});
 }
+function refreshToolInventory() {
+  if (!inventoryRequest) {
+    argumentDefaults = undefined;
+    automaticSupported = false;
+    inventoryRequest = remote.listTools(undefined, { cacheMode: 'refresh' }).then(async ({ tools }) => {
+      if (tools.length > 2000) throw new Error('tool inventory exceeds bound');
+      const defaults = new Map();
+      for (const { name, inputSchema } of tools) {
+        if (defaults.has(name)) {
+          defaults.set(name, {}); // Ambiguous tool names cannot establish a capability.
+          continue;
+        }
+        const options = {};
+        const scopes = inputSchema.properties?.scope?.enum;
+        if (scopedReadNames.has(name) && Array.isArray(scopes) && scopes.includes('all')) options.scope = 'all';
+        if (advertisesUnifiedTree(inputSchema)) options.tree = 'unified';
+        defaults.set(name, options);
+      }
+      automaticSupported = !!automatic && ['get_effect_measurement_policy', 'prepare_effect_measurement', 'report_effect_diagnostic', 'report_retrieval_evaluation'].every(name => defaults.has(name));
+      if (automaticSupported && !recovered) {
+        try { await automatic.recover(); } catch { process.stderr.write('Foundocs measurement recovery unavailable; ordinary MCP continues.\n'); }
+        recovered = true;
+      }
+      argumentDefaults = defaults;
+      return tools;
+    }).finally(() => { inventoryRequest = undefined; });
+  }
+  return inventoryRequest;
+}
 try {
   const url = new URL(endpoint);
   if ((url.protocol !== 'https:' && !(url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname))) || url.username || url.password || url.search || url.hash) throw new Error();
   const key = await readCredential(credentialPath, projectId, workspaceId);
-  remote = new Client({ name: 'foundocs-local-auth', version: '0.2.0' });
+  remote = new Client({ name: 'foundocs-local-auth', version: '0.2.0' }, { listMaxPages: 20 });
   const transport = new StreamableHTTPClientTransport(url, {
     requestInit: { headers: { Authorization: `Bearer ${key}` } },
     fetch: (target, init) => {
@@ -89,34 +129,16 @@ try {
     },
   });
   local = new Server({ name: 'foundocs', version: '0.2.0' }, { capabilities: { tools: {} }, instructions: remote.getInstructions() });
-  local.setRequestHandler('tools/list', async (request) => {
+  local.setRequestHandler('tools/list', async () => {
     try {
-      // Assemble a bounded complete inventory before adding a local name. Never
-      // infer absence from the first remote page or shadow a later-page tool.
-      const tools = [], seen = new Set(); let cursor;
-      for (let page = 0; page < 20; page++) {
-        const result = await remote.listTools(cursor ? { cursor } : undefined);
-        tools.push(...result.tools);
-        if (tools.length > 2000) throw new Error('tool inventory exceeds bound');
-        if (!result.nextCursor) {
-          const collision = tools.some(tool => tool.name === checkpointTool.name);
-          const supported = !!root && ['codex', 'claude'].includes(client) && tools.some(tool => tool.name === 'capture_episode') && !collision;
-          checkpointRoute = supported ? 'local' : checkpointWasLocal ? 'blocked' : 'remote';
-          if (supported) { checkpointWasLocal = true; tools.push(checkpointTool); }
-          // Once advertised locally, this name can never start forwarding private
-          // checkpoint payloads to a changing remote inventory.
-          automaticSupported = !!automatic && ['get_effect_measurement_policy', 'prepare_effect_measurement', 'report_effect_diagnostic', 'report_retrieval_evaluation'].every(name => tools.some(tool => tool.name === name));
-          if (automaticSupported && !recovered) {
-            try { await automatic.recover(); } catch { process.stderr.write('Foundocs measurement recovery unavailable; ordinary MCP continues.\n'); }
-            recovered = true;
-          }
-          const visible = checkpointRoute === 'blocked' ? tools.filter(tool => tool.name !== checkpointTool.name) : tools;
-          return { tools: automaticSupported ? visible.map(automaticTool) : visible };
-        }
-        if (seen.has(result.nextCursor)) throw new Error('tool cursor loop');
-        seen.add(result.nextCursor); cursor = result.nextCursor;
-      }
-      throw new Error('tool inventory exceeds page bound');
+      // The SDK collects all pages before we consider adding a local name.
+      const tools = await refreshToolInventory();
+      const collision = tools.some(tool => tool.name === checkpointTool.name);
+      const supported = !!root && ['codex', 'claude'].includes(client) && tools.some(tool => tool.name === 'capture_episode') && !collision;
+      checkpointRoute = supported ? 'local' : checkpointWasLocal ? 'blocked' : 'remote';
+      if (supported) checkpointWasLocal = true;
+      const visible = supported ? [...tools, checkpointTool] : checkpointRoute === 'blocked' ? tools.filter(tool => tool.name !== checkpointTool.name) : tools;
+      return { tools: automaticSupported ? visible.map(automaticTool) : visible };
     }
     catch (error) { throw requestError(error, 'tools_list'); }
   });
@@ -135,7 +157,18 @@ try {
       const response = { ok: true, data };
       return { structuredContent: response, content: [{ type: 'text', text: JSON.stringify(response) }], isError: false };
     }
-    try { return automaticSupported ? await automatic.call(request.params) : await remote.callTool(request.params); }
+    try {
+      const { name, arguments: args } = request.params;
+      // A host may reuse a cached tool without listing this bridge first.
+      if (!argumentDefaults) await refreshToolInventory().catch(() => {});
+      const defaults = argumentDefaults?.get(name);
+      const params = defaults ? { ...request.params, arguments: { ...defaults, ...args } } : request.params;
+      if (automaticSupported) return await automatic.call(params);
+      if (args && ['effectTask', 'effectTaskId', 'effectTaskComplete'].some(key => Object.hasOwn(args, key))) {
+        throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'Automatic measurement metadata requires the current installer and server.');
+      }
+      return await remote.callTool(params);
+    }
     catch (error) { throw requestError(error, request.params.name); }
   });
   local.onerror = () => process.stderr.write('Foundocs local MCP transport error.\n');
